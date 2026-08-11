@@ -178,7 +178,7 @@ FOUNTAIN_SWITCHES = [
 # handled by `drinkDetection_Enable`, exactly as the `petDetection` switch we
 # already ship is handled by `pet_det_Enable`.
 #
-# Deliberately NOT here: `flushIntensity`, `addWaterMode` and `targetTemp`. All
+# Deliberately NOT here: `flushIntensity`, `addWaterMode` and `heaterTemp`. All
 # are real handlers, but a number or select needs a RANGE and the map gives
 # none, and `payloads.to_device_info` serves settings back to the device — so an
 # invented bound is not a display detail, it is a value we would push.

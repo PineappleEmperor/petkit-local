@@ -115,15 +115,16 @@ function controlRow(id, e, kind) {
         data-input="entity-number" data-id="${esc(id)}" data-key="${esc(e.key)}" data-device-value="${esc(device)}">
       <button class="mini" data-action="set-entity-time" data-id="${esc(id)}" data-key="${esc(e.key)}"${k}>Set</button></span></label>`;
   }
-  // select — device value maps to an option via option_values (else by index/label)
-  let sel = -1;
-  if (e.option_values && e.option_values.length)
-    sel = e.option_values.findIndex(v => String(v) === String(e.value));
+  // select — device value maps to an option via option_values, or by bare
+  // index when an entity declares none (ha/discovery.py::_select_value_template
+  // does the same fallback server-side: `option_values or range(len(options))`).
+  const values =
+    e.option_values && e.option_values.length
+      ? e.option_values
+      : (e.options || []).map((_, idx) => idx);
+  const sel = values.findIndex(v => String(v) === String(e.value));
   const opts = (e.options || [])
-    .map(
-      (o, idx) =>
-        `<option ${idx === sel || (sel < 0 && String(e.value) === String(o)) ? 'selected' : ''}>${esc(o)}</option>`,
-    )
+    .map((o, idx) => `<option ${idx === sel ? 'selected' : ''}>${esc(o)}</option>`)
     .join('');
   return `<label class="ctrl"><span>${nm}</span>
     <span class="cn"><select data-change="set-entity-select" data-id="${esc(id)}" data-key="${esc(e.key)}"${k}>${opts}</select></span></label>`;

@@ -110,21 +110,32 @@ async def test_no_bridge_still_uses_the_heartbeat_queue():
 
 def test_stage_and_get():
     data = b"test content"
-    path = stage_file("test_stage.bin", data)
+    path = stage_file("test_stage.bin", data, 42)
     assert os.path.isfile(path)
-    assert get_staged_path("test_stage.bin") == path
+    assert get_staged_path("test_stage.bin", 42) == path
     with open(path, "rb") as f:
         assert f.read() == data
-    cleanup_staged("test_stage.bin")
-    assert get_staged_path("test_stage.bin") is None
+    cleanup_staged("test_stage.bin", 42)
+    assert get_staged_path("test_stage.bin", 42) is None
 
 
 def test_cleanup_nonexistent_is_safe():
-    cleanup_staged("does_not_exist_12345.bin")
+    cleanup_staged("does_not_exist_12345.bin", 99)
 
 
 def test_get_staged_returns_none_for_missing():
-    assert get_staged_path("no_such_file_xyz.bin") is None
+    assert get_staged_path("no_such_file_xyz.bin", 99) is None
+
+
+def test_staging_is_isolated_across_devices():
+    stage_file("ctrl_patched", b"device_1_data", 1)
+    stage_file("ctrl_patched", b"device_2_data", 2)
+    with open(get_staged_path("ctrl_patched", 1), "rb") as f:
+        assert f.read() == b"device_1_data"
+    with open(get_staged_path("ctrl_patched", 2), "rb") as f:
+        assert f.read() == b"device_2_data"
+    cleanup_staged("ctrl_patched", 1)
+    cleanup_staged("ctrl_patched", 2)
 
 
 # --- md5hex ---

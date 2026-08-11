@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.0.1 — 2026-08-11
+
+- Fixed a race condition when applying patchers to two devices at the same time:
+  staged files are now isolated per device, so one download can no longer
+  overwrite another's.
+- `surplusControl` (Surplus Level select on feeders) now sends the paired
+  `surplusStandard` value the firmware expects, and uses the real wire values
+  (0/30/60/80) instead of option indices.
+- The panel's select controls no longer revert to the first option on repaint
+  when the entity has no explicit `option_values` (affected `flow_mode` on W7H
+  fountains).
+- Hall switches (~20 internal mechanism diagnostics on camera litters) are
+  hidden from the panel's State card by default.
+
 ## 2.0.0 — 2026-08-10
 
 Mostly a tidying release: no new device support, no new entities, and — apart

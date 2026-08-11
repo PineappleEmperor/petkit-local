@@ -252,7 +252,7 @@ async def test_non_api_paths_are_never_forwarded():
     up, base = await _cloud(cloud)
     client, _ = await _device_app(_config(proxy_upstream=base, proxy_mode=True))
     try:
-        r = await client.get("/patcher/download/nope.bin")
+        r = await client.get("/patcher/download/42/nope.bin")
         assert r.status == 404
         assert hits == []
     finally:

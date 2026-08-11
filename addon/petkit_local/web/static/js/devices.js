@@ -462,7 +462,9 @@ function renderPanelBody(d) {
   // the other direction.
   const byCategory = (a, b) => (a.entity_category ? 1 : 0) - (b.entity_category ? 1 : 0);
 
-  const sensors = ents.filter(e => section(e) === 'state').sort(byCategory);
+  const sensors = ents
+    .filter(e => section(e) === 'state' && !e.key.startsWith('hall_'))
+    .sort(byCategory);
   const controls = ents.filter(e => section(e) === 'controls' && !relocated(e)).sort(byCategory);
   const schedules = ents.filter(e => section(e) === 'schedules');
   const media = ents.filter(e => section(e) === 'camera');

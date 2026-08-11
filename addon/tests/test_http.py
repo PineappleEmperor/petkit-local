@@ -702,12 +702,12 @@ async def test_patcher_download_serves_a_staged_file():
     reg = DeviceRegistry()
     client = await _client(reg)
     try:
-        stage_file("test_http_staged.bin", b"patched-binary")
-        r = await client.get("/patcher/download/test_http_staged.bin")
+        stage_file("test_http_staged.bin", b"patched-binary", 42)
+        r = await client.get("/patcher/download/42/test_http_staged.bin")
         assert r.status == 200
         assert await r.read() == b"patched-binary"
     finally:
-        cleanup_staged("test_http_staged.bin")
+        cleanup_staged("test_http_staged.bin", 42)
         await client.close()
 
 
@@ -715,9 +715,9 @@ async def test_patcher_download_rejects_traversal():
     reg = DeviceRegistry()
     client = await _client(reg)
     try:
-        for path in ("/patcher/download/..%2F..%2Fetc%2Fpasswd",
-                     "/patcher/download/..%5C..%5Cetc%5Cpasswd",
-                     "/patcher/download/%2Fetc%2Fpasswd"):
+        for path in ("/patcher/download/42/..%2F..%2Fetc%2Fpasswd",
+                     "/patcher/download/42/..%5C..%5Cetc%5Cpasswd",
+                     "/patcher/download/42/%2Fetc%2Fpasswd"):
             r = await client.get(path)
             assert r.status in (400, 404), f"{path} -> {r.status}"
             assert b"root:" not in await r.read()
@@ -726,19 +726,18 @@ async def test_patcher_download_rejects_traversal():
 
 
 async def test_patcher_download_rejects_a_symlink_out_of_the_stage_dir():
-    # The old check only looked for "/" and ".." in the name, so a symlink
-    # inside the staging dir was served whatever it pointed at.
-    from petkit_local.patchers.common import STAGE_DIR
+    from petkit_local.patchers.common import _device_stage_dir
 
     reg = DeviceRegistry()
     client = await _client(reg)
-    link = os.path.join(STAGE_DIR, "test_http_escape.bin")
+    device_dir = _device_stage_dir(42)
+    link = os.path.join(device_dir, "test_http_escape.bin")
     try:
-        os.makedirs(STAGE_DIR, exist_ok=True)
+        os.makedirs(device_dir, exist_ok=True)
         if os.path.lexists(link):
             os.unlink(link)
         os.symlink("/etc/hosts", link)
-        r = await client.get("/patcher/download/test_http_escape.bin")
+        r = await client.get("/patcher/download/42/test_http_escape.bin")
         assert r.status == 400
     finally:
         if os.path.lexists(link):
@@ -750,7 +749,7 @@ async def test_patcher_download_404_for_missing_file():
     reg = DeviceRegistry()
     client = await _client(reg)
     try:
-        r = await client.get("/patcher/download/no_such_staged_file.bin")
+        r = await client.get("/patcher/download/42/no_such_staged_file.bin")
         assert r.status == 404
     finally:
         await client.close()

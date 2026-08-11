@@ -143,7 +143,7 @@ def create_app(registry: DeviceRegistry, config: dict) -> web.Application:
     # own — drains them while the store is still open.
     app.on_cleanup.append(_drain_media_tasks)
 
-    app.router.add_route("*", "/patcher/download/{filename}", handle_patcher_download)
+    app.router.add_route("*", "/patcher/download/{device_id}/{filename}", handle_patcher_download)
     app.router.add_route("*", "/faces/{filename}", handle_faces)
     app.router.add_route("*", "/", handle_index)
     app.router.add_route("*", "/{path:.*}", handle_catchall)
@@ -158,8 +158,12 @@ async def _drain_media_tasks(app: web.Application) -> None:
 
 async def handle_patcher_download(request: web.Request) -> web.Response:
     """Serve staged patched files for the device to wget."""
+    device_id = request.match_info["device_id"]
     try:
-        path = safe_join(STAGE_DIR, request.match_info["filename"])
+        path = safe_join(
+            safe_join(STAGE_DIR, device_id),
+            request.match_info["filename"],
+        )
     except UnsafePathError:
         return web.Response(status=400, text="bad filename")
 

@@ -115,6 +115,30 @@ def test_select_explicit_values():
     assert payload["params"] == {"autoIntervalMin": 7200}
 
 
+def _feeder():
+    d = Device(device_type="d4sh", petkit_id=1, serial_number="SN")
+    d.config.setdefault("settings", defaults.default_settings(d))
+    return d, _settable_index(d)
+
+
+def test_surplus_level_writes_the_pair():
+    """`surplusControl` alone carries on/off + level (0/30/60/80); the level
+    is mirrored into `surplusStandard` too, per a live D4SH capture."""
+    d, idx = _feeder()
+    _, payload = handle_ha_command(d, idx["surplus_level"], "moderate")
+    assert payload["params"] == {"surplusControl": 60, "surplusStandard": 2}
+    assert d.config["settings"]["surplusControl"] == 60
+    assert d.config["settings"]["surplusStandard"] == 2
+
+
+def test_surplus_level_disabled_leaves_standard_untouched():
+    d, idx = _feeder()
+    d.config["settings"]["surplusStandard"] = 3
+    _, payload = handle_ha_command(d, idx["surplus_level"], "disabled")
+    assert payload["params"] == {"surplusControl": 0}
+    assert d.config["settings"]["surplusStandard"] == 3
+
+
 def test_button_returns_mqtt_service_envelope():
     d, idx = _litter()
     suffix, env = handle_ha_command(d, idx["cleaning_start"], "")

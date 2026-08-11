@@ -403,38 +403,43 @@ async def ensure_space_for(device: Device, device_ip: str, *, write_bytes: int,
     return f"{mount}: {_fmt_bytes(free)} free, needs {_fmt_bytes(needed)}"
 
 
-def stage_file(filename: str, data: bytes) -> str:
-    """Write a patched file to the staging directory for the device to wget."""
-    os.makedirs(STAGE_DIR, exist_ok=True)
-    path = os.path.join(STAGE_DIR, filename)
+def _device_stage_dir(device_id: int) -> str:
+    return os.path.join(STAGE_DIR, str(device_id))
+
+
+def stage_file(filename: str, data: bytes, device_id: int) -> str:
+    """Write a patched file to a per-device staging subdirectory."""
+    d = _device_stage_dir(device_id)
+    os.makedirs(d, exist_ok=True)
+    path = os.path.join(d, filename)
     with open(path, "wb") as f:
         f.write(data)
-    log.info("Patcher: staged %s (%d bytes, md5=%s)", filename, len(data),
-             hashlib.md5(data).hexdigest())
+    log.info("Patcher: staged %s for device %d (%d bytes, md5=%s)",
+             filename, device_id, len(data), hashlib.md5(data).hexdigest())
     return path
 
 
-def cleanup_staged(filename: str) -> None:
+def cleanup_staged(filename: str, device_id: int) -> None:
     """Drop a staged file once the device has fetched it.
 
     A file that is already gone is not an error: the patcher's cleanup runs on
     both the success and failure paths.
     """
-    path = os.path.join(STAGE_DIR, filename)
+    path = os.path.join(_device_stage_dir(device_id), filename)
     try:
         os.unlink(path)
     except OSError:
         pass
 
 
-def get_staged_path(filename: str) -> str | None:
+def get_staged_path(filename: str, device_id: int) -> str | None:
     """Path of a staged file, or None if it is not staged right now.
 
     Note that `/patcher/download` does NOT go through this: it resolves the
     name against `STAGE_DIR` with `safe_join` (see http/server.py), so this
     helper exists for callers that need to ask without serving.
     """
-    path = os.path.join(STAGE_DIR, filename)
+    path = os.path.join(_device_stage_dir(device_id), filename)
     return path if os.path.isfile(path) else None
 
 

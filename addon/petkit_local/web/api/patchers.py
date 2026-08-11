@@ -142,7 +142,7 @@ async def api_patcher_apply(request: web.Request) -> web.Response:
 
     # Extract host:port from api_url for the device to wget from
     parsed = urlparse(api_url)
-    download_base = f"http://{parsed.hostname}:{parsed.port or 80}/patcher/download"
+    download_base = f"http://{parsed.hostname}:{parsed.port or 80}/patcher/download/{did}"
 
     # Launch as a background task — the UI tracks progress via WS events. A
     # patcher run outlives its request by minutes (it sleeps between device
@@ -276,13 +276,13 @@ async def _patcher_apply(d: Device, patcher_id: str, device_ip: str, download_ba
             targets=[device_path, wrapper_path], bridge=bridge,
             mount=storage_dir))
 
-        stage_file(staged_name, patched)
+        stage_file(staged_name, patched, did)
         hub.publish("patcher", did, f"{P} uploading {staged_name} to device...")
         await asyncio.sleep(12)
 
         await send_run_cmd(d, f"wget -q -O {device_path} {download_base}/{staged_name} && chmod +x {device_path}", bridge)
         await asyncio.sleep(12)
-        cleanup_staged(staged_name)
+        cleanup_staged(staged_name, did)
         hub.publish("patcher", did, f"{P} file uploaded to {device_path}")
 
     elif patcher_id == "ssh":
@@ -322,8 +322,8 @@ async def _patcher_apply(d: Device, patcher_id: str, device_ip: str, download_ba
             targets=[*ssh_paths, wrapper_path],
             bridge=bridge, mount=storage_dir))
 
-        stage_file(bin_name, dropbear)
-        stage_file(AUTHKEYS_STAGED_NAME, authkeys)
+        stage_file(bin_name, dropbear, did)
+        stage_file(AUTHKEYS_STAGED_NAME, authkeys, did)
         hub.publish("patcher", did, f"{P} staged {bin_name} + authorized_keys for download")
 
         cmds = ssh_install_commands(download_base, bin_name, d)
@@ -334,8 +334,8 @@ async def _patcher_apply(d: Device, patcher_id: str, device_ip: str, download_ba
                 hub.publish("patcher", did, f"{P} step {i} timed out (device may not have polled)")
             await asyncio.sleep(12)
 
-        cleanup_staged(bin_name)
-        cleanup_staged(AUTHKEYS_STAGED_NAME)
+        cleanup_staged(bin_name, did)
+        cleanup_staged(AUTHKEYS_STAGED_NAME, did)
         hub.publish("patcher", did, f"{P} dropbear installed, SSH should be reachable now")
 
     else:
@@ -353,7 +353,7 @@ async def _patcher_apply(d: Device, patcher_id: str, device_ip: str, download_ba
 
     hub.publish("patcher", did, f"{P} uploading {wrapper_path} wrapper...")
     wrapper_content = generate_app_init_wrapper(active, d)
-    stage_file("app_init.sh", wrapper_content.encode())
+    stage_file("app_init.sh", wrapper_content.encode(), did)
     await send_run_cmd(
         d,
         f"wget -q -O {wrapper_path} {download_base}/app_init.sh && "
@@ -369,7 +369,7 @@ async def _patcher_apply(d: Device, patcher_id: str, device_ip: str, download_ba
         hub.publish("patcher", did, f"{P} wrapper upload timed out - staged file kept for retry")
     else:
         await asyncio.sleep(15)
-        cleanup_staged("app_init.sh")
+        cleanup_staged("app_init.sh", did)
 
     hub.publish("patcher", did, f"{P} rebooting device...")
     await send_run_cmd(d, "reboot", bridge)
@@ -408,7 +408,7 @@ async def _patcher_remove(d: Device, patcher_id: str, device_ip: str, download_b
     if active:
         hub.publish("patcher", did, f"{P} uploading updated wrapper...")
         wrapper_content = generate_app_init_wrapper(active, d)
-        stage_file("app_init.sh", wrapper_content.encode())
+        stage_file("app_init.sh", wrapper_content.encode(), did)
         # Delete the patched files and download the new wrapper in one command,
         # so the device never boots with a wrapper that references files that
         # no longer exist.
@@ -425,7 +425,7 @@ async def _patcher_remove(d: Device, patcher_id: str, device_ip: str, download_b
             hub.publish("patcher", did, f"{P} wrapper upload timed out - staged file kept for retry")
         else:
             await asyncio.sleep(15)
-            cleanup_staged("app_init.sh")
+            cleanup_staged("app_init.sh", did)
         hub.publish("patcher", did, f"{P} rebooting device...")
         await send_run_cmd(d, "reboot", bridge)
     else:
