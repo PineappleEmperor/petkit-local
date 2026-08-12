@@ -17,6 +17,7 @@ from aiohttp import web
 from petkit_local.devices import defaults
 from petkit_local.devices.base import encode_multi_range
 from petkit_local.ha.commands import PROPERTY_SET_SUFFIX, make_mqtt_property_set
+from petkit_local.http.handlers.feed import _build_latest
 from petkit_local.utils.coerce import to_int
 from petkit_local.web.api._common import _deliver, _device_or_404, _json_body
 
@@ -226,16 +227,16 @@ async def api_save_schedule(request: web.Request) -> web.Response:
             return web.json_response({"error": "not a valid feeding schedule"}, status=400)
         d.config["feed_schedule"] = feed
         reg.save()
-        # Two commands, mirroring the cloud: property.set{feed} carries the
-        # schedule over MQTT, and feed_get:"1" tells the device to re-poll
-        # dev_feed_get (the only path over HTTP heartbeat). _deliver picks
-        # whichever transport is live; the feed_get is always queued for
-        # heartbeat as a backstop.
+        _push_feed_get(d, hub, bridge, feed)
+        now = time.time()
+        latest = _build_latest(feed, now)
+        wire = {
+            "schedule": feed.get("schedule", []),
+            "nextTick": min((e["t"] for e in latest), default=7200),
+            "latest": latest,
+        }
         mqtt_cmd = make_mqtt_property_set(
-            {"feed": json.dumps(feed, separators=(",", ":"))})
-        hb_cmd = {"msgType": 1, "payload": {"feed_get": "1"},
-                  "timestamp": int(time.time())}
-        d.command_queue.append(hb_cmd)
+            {"feed": json.dumps(wire, separators=(",", ":"))})
         return await _deliver(hub, bridge, d, PROPERTY_SET_SUFFIX, mqtt_cmd)
 
     cleaner = {"ranges": _clean_range_list, "weekly": _clean_weekly_list,
