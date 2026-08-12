@@ -233,6 +233,7 @@ def test_every_live_key_round_trips_through_the_overrides_file():
         "proxy_block_ota": False,
         "proxy_block_log_upload": False,
         "proxy_media_real_oss": True,
+        "proxy_local_cvr_window": True,
         "proxy_mqtt_bridge": False,
         "proxy_only": "dev_device_info",
         "capture": True,

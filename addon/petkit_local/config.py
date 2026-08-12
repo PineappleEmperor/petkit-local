@@ -42,6 +42,7 @@ PANEL_LIVE_KEYS = (
     "proxy_block_ota",
     "proxy_block_log_upload",
     "proxy_media_real_oss",
+    "proxy_local_cvr_window",
     "proxy_mqtt_bridge",
     "proxy_only",
     "capture",
@@ -308,6 +309,9 @@ class Config:
     #: default because turning proxy mode on would otherwise silently stop every
     #: recording from landing locally.
     proxy_media_real_oss: bool = False
+    #: Answer a camera with OUR standing cloud-storage window instead of
+    #: the upstream's. Off by default -- see `redact/rules.py`.
+    proxy_local_cvr_window: bool = False
     #: Comma-separated endpoint names to forward, e.g.
     #: "dev_device_info,dev_multi_config". Empty means every endpoint, which is
     #: normal operation. A non-empty list answers everything else locally, which
@@ -418,6 +422,7 @@ class Config:
             "proxy_block_ota": self.proxy_block_ota,
             "proxy_block_log_upload": self.proxy_block_log_upload,
             "proxy_media_real_oss": self.proxy_media_real_oss,
+            "proxy_local_cvr_window": self.proxy_local_cvr_window,
             "proxy_mqtt_bridge": self.proxy_mqtt_bridge,
             "proxy_only": self.proxy_only,
             "capture": self.capture,

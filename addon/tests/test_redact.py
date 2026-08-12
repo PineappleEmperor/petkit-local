@@ -642,3 +642,32 @@ def test_log_upload_guard_can_be_switched_off():
                         policy=_policy(block_log_upload=False))
     assert body == payload
     assert result.records == []
+
+
+def test_an_sts_capability_list_and_a_subscription_list_are_not_confused():
+    """Both are keyed `capability[]` and they are different things.
+
+    One carries upload credentials (`cycleType`, `primaryParUrl`), the other a
+    cloud-storage window (`name`, `indate`). Matching on the key alone had the
+    STS rule replace a subscription window with a credential list.
+    """
+    subscription = {"capability": [{"name": "fullVideo", "workTime": 1, "indate": 2}]}
+    out, result = _run(dict(subscription))
+    assert out["capability"] == subscription["capability"], "the STS rule ate a subscription"
+    assert not result.records
+
+
+def test_the_cvr_window_is_left_alone_unless_the_toggle_is_on():
+    """An expired window from PetKit is a fact about somebody's account, so
+    overriding it is a decision rather than a transport detail — off until
+    asked for. On, a lapsed subscription stops silently disabling recording."""
+    expired = {"capacity": [{"name": "fullVideo", "workTime": 1, "indate": 2}],
+               "cloudProduct": {"workIndate": 2, "chargeType": "PAID"}}
+
+    kept, _ = _run(dict(expired))
+    assert kept["capacity"] == expired["capacity"]
+
+    swapped, result = _run(dict(expired), policy=_policy(local_cvr_window=True))
+    assert swapped["capacity"] != expired["capacity"]
+    assert swapped["cloudProduct"]["chargeType"] == "LOCAL"
+    assert any(r.rule == RULE_OSS_STS for r in result.records)

@@ -12,7 +12,8 @@ from typing import Any
 
 from petkit_local.http.redact import _DROP, RedactionPolicy, RedactionResult
 from petkit_local.http.redact.rules import (
-    _match_locale, _match_mqtt, _match_oss_sts, _match_ota_shape, _match_rce, _match_secret,
+    _match_cvr_capacity, _match_locale, _match_mqtt, _match_oss_sts, _match_ota_shape,
+    _match_rce, _match_secret,
     _match_server,
 )
 
@@ -54,6 +55,7 @@ def _walk_dict(node: dict, path: str, policy: RedactionPolicy,
     node = _match_server(node, path, policy, out)
     node = _match_mqtt(node, path, policy, out)
     node = _match_oss_sts(node, path, policy, out)
+    node = _match_cvr_capacity(node, path, policy, out)
     node = _match_secret(node, path, policy, out)
     node = _match_locale(node, path, policy, out)
 

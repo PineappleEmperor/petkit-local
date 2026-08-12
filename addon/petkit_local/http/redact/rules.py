@@ -299,7 +299,15 @@ def _match_oss_sts(node: dict, path: str, policy: RedactionPolicy,
     The original is captured either way.
     """
     device = policy.device
-    if device is None or not isinstance(node.get("capability"), list):
+    caps = node.get("capability")
+    if device is None or not isinstance(caps, list) or not caps:
+        return node
+    # Shape-gated, because `dev_device_info`'s cloud-subscription list is ALSO
+    # keyed `capability[]` and carries `name`/`workTime`/`indate` instead. Both
+    # used to land here, so a subscription window was replaced with an upload
+    # credential list. That one is `_match_cvr_capacity`.
+    sample = caps[0] if isinstance(caps[0], dict) else None
+    if sample is None or not ("cycleType" in sample or "primaryParUrl" in sample):
         return node
 
     out.captured["oss_sts"] = node["capability"]
@@ -316,6 +324,54 @@ def _match_oss_sts(node: dict, path: str, policy: RedactionPolicy,
         note="upstream tried to repoint media uploads",
     ))
     return patched
+
+
+def _match_cvr_capacity(node: dict, path: str, policy: RedactionPolicy,
+                        out: RedactionResult) -> dict:
+    """`capacity[]` / `cloudProduct` — the cloud-storage subscription window.
+
+    The firmware arms continuous recording only while now falls between an
+    entry's `workTime` and its `indate`. An EXPIRED PetKit billing window
+    therefore arrives looking like a perfectly valid configuration and quietly
+    leaves the device recording nothing, with no error anywhere.
+
+    OFF by default, and that is deliberate rather than timid: overriding it
+    means telling a device its subscription is live when PetKit says it is not,
+    which is a decision about somebody else's account, not a transport detail.
+    `proxy_local_cvr_window` in the panel turns it on.
+
+    Shape-gated on `name`+`indate` so the STS `capability[]`
+    (`cycleType`/`primaryParUrl`) is left to `_match_oss_sts`.
+    """
+    device = policy.device
+    if device is None or not device.is_camera or not policy.local_cvr_window:
+        return node
+
+    ours = payloads.to_device_info(device)["result"]
+    patched = dict(node)
+    changed = False
+
+    caps = node.get("capacity")
+    if isinstance(caps, list) and caps and isinstance(caps[0], dict) \
+            and "indate" in caps[0] and ours.get("capacity"):
+        patched["capacity"] = ours["capacity"]
+        out.records.append(Redaction(
+            rule=RULE_OSS_STS, path=f"{path}.capacity" if path else "capacity",
+            original=caps, replacement=ours["capacity"],
+            note="upstream CVR window replaced with our standing one"))
+        changed = True
+
+    product = node.get("cloudProduct")
+    if isinstance(product, dict) and "workIndate" in product and ours.get("cloudProduct"):
+        patched["cloudProduct"] = ours["cloudProduct"]
+        out.records.append(Redaction(
+            rule=RULE_OSS_STS,
+            path=f"{path}.cloudProduct" if path else "cloudProduct",
+            original=product, replacement=ours["cloudProduct"],
+            note="upstream cloudProduct window replaced with our standing one"))
+        changed = True
+
+    return patched if changed else node
 
 
 def _match_secret(node: dict, path: str, policy: RedactionPolicy,
