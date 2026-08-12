@@ -431,8 +431,7 @@ UNKNOWN_HTTP_CODES = frozenset({"12", "19", "22", "23"})
 #: disassembly does not resolve to a constant.
 #:
 #: Known pack functions without a recovered code: eat_start, eat_over,
-#: move_event, pet_event, err_start, err_over, relay_start, relay_over,
-#: relay_response.
+#: pet_event, err_start, err_over, relay_start, relay_over, relay_response.
 FEEDER_HTTP_CODES: dict[str, EventCode] = {
     "2": EventCode(
         kind=KIND_FEEDING, label="Feeding done", anchor=True, role=ROLE_DONE,
@@ -459,6 +458,18 @@ FEEDER_HTTP_CODES: dict[str, EventCode] = {
              "matches MQTT feed_over/post. Coexists with code 2 "
              "(same kind, simpler shape, from the D4H firmware RE); "
              "which code a given model sends is not yet settled.",
+    ),
+    "7": EventCode(
+        kind=KIND_MOTION, label="Motion detected", anchor=True,
+        families=FEEDER_CAMERA,
+        note="Confirmed on a live D4SH (fw 248, HTTP). Content "
+             "{img, aesKey, mark, start_time} — a snapshot event, "
+             "same shape as litter code 20 without the detection flags. "
+             "Six occurrences in quick succession (55-190s apart) point to "
+             "motion detection rather than pet identification. "
+             "The firmware has both pk_event_pack_move_event_msg and "
+             "pk_event_pack_pet_event_msg; which one produces this code "
+             "is not resolved.",
     ),
 }
 
