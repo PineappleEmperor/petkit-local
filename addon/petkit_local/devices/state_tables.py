@@ -74,10 +74,22 @@ DEODORANT_TOTAL_DAYS = 30
 #: contact that would ever carry it.
 CONSUMABLE_RECORD_KEY = "consumables"
 
+#: A camera feeder's desiccant pack. Like the N50 it has no countdown anywhere
+#: in the protocol -- the reset is all the device knows about -- so 30 days is
+#: the pack life PetKit's own app counts down from.
+DESICCANT_TOTAL_DAYS = 30
+
 #: The consumables a "replaced" action can stamp, and what each one fills.
+#:
+#: `apply_consumable_state` writes these into `device.state`, so a value WE
+#: derived wins over one the device reported. That is right for all three:
+#: each is filled from a replacement date, and the only way one gets recorded
+#: is somebody pressing the button, which is newer information than whatever
+#: count the device was carrying.
 CONSUMABLE_TOTALS = {
     "n50": ("deodorantLeftDays", DEODORANT_TOTAL_DAYS),
     "n60": ("sprayLeftDays", SPRAY_TOTAL_DAYS),
+    "desiccant": ("desiccantLeftDays", DESICCANT_TOTAL_DAYS),
 }
 
 #: OURS, not the device's: no work-mode code means "idle", because the device

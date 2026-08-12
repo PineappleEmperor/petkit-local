@@ -172,10 +172,17 @@ FEEDER_SENSORS = [
               value_path="state.desiccantLeftDays", unit="days", icon="mdi:water-outline"),
     EntityDef(component="sensor", key="rssi", name="WiFi Signal",
               value_path="state.rssi", device_class="signal_strength", unit="dBm"),
+    # Both are running DAILY totals, summed from the feed events by
+    # `events/normalize.py::_accumulate_feed_totals` -- no device reports them,
+    # and on PetKit's own service the cloud does the same sum. `state_class`
+    # matters because they reset at the device's midnight: without it HA's
+    # long-term statistics read each rollover as the value genuinely falling.
     EntityDef(component="sensor", key="times_dispensed", name="Times Dispensed",
-              value_path="state.feedState.times", icon="mdi:counter"),
+              value_path="state.feedState.times", icon="mdi:counter",
+              state_class="total_increasing"),
     EntityDef(component="sensor", key="total_dispensed", name="Total Dispensed",
-              value_path="state.feedState.realAmountTotal", unit="g", icon="mdi:scale"),
+              value_path="state.feedState.realAmountTotal", unit="g", icon="mdi:scale",
+              state_class="total_increasing"),
     EntityDef(component="sensor", key="food_in_bowl", name="Food in Bowl",
               value_path="state.weight", unit="g", icon="mdi:bowl"),
     EntityDef(component="sensor", key="food_bowl_pct", name="Food Bowl Level",

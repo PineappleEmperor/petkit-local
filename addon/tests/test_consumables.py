@@ -220,3 +220,59 @@ def test_the_camera_gating_schedule_is_sent_as_objects():
     entries = ranges["cameraMultiNew"]
     assert isinstance(entries[0], dict), "still the bare-range shape"
     assert "rpt" in entries[0] and "time" in entries[0]
+
+
+def test_a_dual_hopper_feed_counts_toward_the_daily_totals():
+    """Both sensors read `feedState`, which no feeder report carries.
+
+    A D4SH reports the amount PER HOPPER (`real_amount1`/`real_amount2`), so
+    reading only the unsuffixed `real_amount` would leave a dual-hopper
+    feeder's counters permanently at zero.
+    """
+    from petkit_local.events import normalize
+
+    dev = Device(device_type="d4sh", petkit_id=11)
+    normalize.apply_derived_state(dev, "feed_over", {
+        "day": 20260808, "real_amount1": 0, "real_amount2": 12})
+    normalize.apply_derived_state(dev, "feed_over", {
+        "day": 20260808, "real_amount1": 3, "real_amount2": 0})
+    assert dev.state["feedState"] == {"day": 20260808, "times": 2,
+                                      "realAmountTotal": 15}
+
+
+def test_a_jammed_feed_dispensed_nothing_and_counts_as_nothing():
+    from petkit_local.events import normalize
+
+    dev = Device(device_type="d4sh", petkit_id=12)
+    normalize.apply_derived_state(dev, "feed_over", {
+        "day": 20260808, "real_amount1": 0, "real_amount2": 0, "err_code": 8})
+    assert "feedState" not in dev.state
+
+
+def test_the_totals_start_over_when_the_device_says_the_day_changed():
+    """`day` is the DEVICE's reading of which day it is, so the rollover
+    follows its clock rather than the container's."""
+    from petkit_local.events import normalize
+
+    dev = Device(device_type="d4h", petkit_id=13)
+    normalize.apply_derived_state(dev, "feed_over", {"day": 20260808, "real_amount": 10})
+    normalize.apply_derived_state(dev, "feed_over", {"day": 20260809, "real_amount": 4})
+    assert dev.state["feedState"] == {"day": 20260809, "times": 1,
+                                      "realAmountTotal": 4}
+
+
+def test_the_feed_totals_are_not_persisted():
+    """`Device.to_dict` excludes `state` on purpose and this lives there."""
+    from petkit_local.events import normalize
+
+    dev = Device(device_type="d4h", petkit_id=14)
+    normalize.apply_derived_state(dev, "feed_over", {"day": 20260808, "real_amount": 10})
+    assert "feedState" not in json.dumps(dev.to_dict())
+
+
+def test_pressing_reset_desiccant_starts_its_countdown():
+    """The sensor and the button both existed; nothing connected them, so
+    "Desiccant Days Left" could never hold a value."""
+    dev = Device(device_type="d4sh", petkit_id=15)
+    handle_ha_command(dev, _entity(dev, "reset_desiccant"), "PRESS")
+    assert dev.state["desiccantLeftDays"] == 30

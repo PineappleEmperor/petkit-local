@@ -77,6 +77,10 @@ class EntityDef:
     name: str
     value_path: str = ""
     device_class: str = ""
+    #: HA statistics class. A running daily counter needs
+    #: `total_increasing`, or the long-term statistics treat every midnight
+    #: reset as the value genuinely falling and the graph reads as nonsense.
+    state_class: str = ""
     unit: str = ""
     icon: str = ""
     entity_category: str = ""
@@ -182,6 +186,8 @@ def build_discovery_payload(
 
     if entity.device_class:
         payload["device_class"] = entity.device_class
+    if entity.state_class:
+        payload["state_class"] = entity.state_class
     if entity.unit:
         payload["unit_of_measurement"] = entity.unit
     if entity.icon:
