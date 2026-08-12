@@ -910,17 +910,23 @@ SCHEDULE_TYPES: dict[int, str] = {
 #: time=%d,repeats=%d` — so `a1`/`a2` are the per-hopper portions, the same pair
 #: a `feed_realtime` carries on this model, and `re` is the group's weekdays.
 #:
-#: `it` was an EMPTY LIST in every capture we have, which is why this was read
-#: out of the binary rather than off the wire. Two things follow from that:
+#: `it` arrived POPULATED on 2026-08-12 — 21 proxied `dev_feed_get` responses
+#: from the real cloud to a D4SH with meals set. They settle what the earlier
+#: firmware read could not:
 #:
-#:   * The UNIT OF `t` IS INFERRED, not confirmed. Minutes since local midnight
-#:     is what every other schedule time on these devices uses, including the
-#:     litter box's `schedule[].time` confirmed against our own T5 — but nobody
-#:     has watched a feeder receive one. A feeder owner will find out within a
-#:     day of setting one, which is the fastest correction available.
-#:   * `itemJsonString` is NOT read by this parser. It is written alongside `it`
-#:     anyway, because that is what the real cloud sends and there is no reason
-#:     to hand the device a payload a shape narrower than the one it knows.
+#:   * The UNIT OF `t` IS SECONDS since local midnight — `n_46560` fired at
+#:     12:56:00 — NOT the minutes every other schedule time on these devices
+#:     counts (the litter box's `schedule[].time`, confirmed on our T5, is
+#:     minutes). The id is `n_<that same seconds value>`.
+#:   * `latest[]` holds the concrete feeds firing TODAY OR TOMORROW, id
+#:     `s_YYYYMMDD_<secs>` (an instance of a recurring meal) or `d_...` (a
+#:     one-off), with `t` a countdown in seconds from now, floored, recomputed
+#:     every poll. `nextTick` is the countdown of the last `latest` entry, and
+#:     the constant 86340 when `latest` is empty.
+#:   * `itemJsonString` is NOT read by this parser. It is written alongside
+#:     `it` anyway, because that is what the real cloud sends (keys in
+#:     alphabetical order) and there is no reason to hand the device a payload
+#:     a shape narrower than the one it knows.
 FEED_SCHEDULE_ITEM_KEYS = ("id", "t", "a1", "a2")
 
 #: The weekday numbering PetKit uses everywhere a schedule names days:

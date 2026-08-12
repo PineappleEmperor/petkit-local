@@ -30,6 +30,7 @@ from petkit_local.ha.discovery import EntityDef
 from petkit_local.utils.coerce import to_bool, to_float, to_int
 from petkit_local.utils.const import DEVICE_TYPES_FEEDER_DUAL, DEVICE_TYPES_FEEDER_NEXT_GEN
 from petkit_local.http.handlers.feed import _build_latest as _feed_latest
+from petkit_local.http.handlers.feed import _compute_next_tick as _feed_next_tick
 from petkit_local.utils.timeutil import local_day_start
 
 log = logging.getLogger(__name__)
@@ -554,13 +555,18 @@ def handle_ha_command(device: Device, entity: EntityDef, payload: str) -> Comman
         device.config[key] = parsed
         log.info("Set config[%s] for device %d", key, device.petkit_id)
         if key == "feed_schedule" and isinstance(parsed, dict):
+            # A raw save is current-format by definition — the stamp keeps the
+            # one-time minute migration (feed.migrate_minute_schedule) off it.
+            parsed["v"] = 2
             device.command_queue.append({"msgType": 1,
                                          "payload": {"feed_get": "1"},
                                          "timestamp": int(time.time())})
             latest = _feed_latest(parsed, time.time())
+            wire_groups = [{"re": g.get("re", ""), "it": g.get("it", [])}
+                           for g in parsed.get("schedule", [])]
             wire = {
-                "schedule": parsed.get("schedule", []),
-                "nextTick": min((e["t"] for e in latest), default=7200),
+                "schedule": wire_groups,
+                "nextTick": _feed_next_tick(latest),
                 "latest": latest,
             }
             return (PROPERTY_SET_SUFFIX, make_mqtt_property_set(

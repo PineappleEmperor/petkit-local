@@ -17,7 +17,7 @@ from aiohttp import web
 from petkit_local.devices import defaults
 from petkit_local.devices.base import encode_multi_range
 from petkit_local.ha.commands import PROPERTY_SET_SUFFIX, make_mqtt_property_set
-from petkit_local.http.handlers.feed import _build_latest
+from petkit_local.http.handlers.feed import _build_latest, _compute_next_tick
 from petkit_local.utils.coerce import to_int
 from petkit_local.web.api._common import _deliver, _device_or_404, _json_body
 
@@ -25,6 +25,10 @@ from petkit_local.web.api._common import _deliver, _device_or_404, _json_body
 #: Minutes in a day. A schedule range runs 0..1440 inclusive — 1440 is the end
 #: of the day and appears in every "entire day" payload PetKit sends.
 DAY_MINUTES = 24 * 60
+
+#: Seconds in a day — the unit of a feeder meal's `t`, alone among the
+#: schedule shapes (see `_clean_feed_schedule`).
+DAY_SECONDS = 24 * 3600
 
 
 def _clean_range_list(value: Any) -> list[list[int]] | None:
@@ -129,13 +133,17 @@ def _clean_feed_schedule(value: Any) -> dict[str, Any] | None:
 
     The shape comes from a D4SH 867 `ctrl` (`pk_schmg_parse_schedule`), which
     reads `re` and `it` per group and `id`/`t`/`a1`/`a2` per meal; see
-    `events/codes.py::FEED_SCHEDULE_ITEM_KEYS` for what the firmware's own log
-    line calls each of them, and for why the unit of `t` is inferred.
+    `events/codes.py::FEED_SCHEDULE_ITEM_KEYS`. Unlike every other schedule
+    here, a meal's `t` counts SECONDS since local midnight — the cloud's
+    `n_46560` fires at 12:56:00 (D4SH capture, 2026-08-12) — and the id is the
+    cloud's `n_<seconds>` scheme, regenerated whenever a client sends an int.
 
     `itemJsonString` is rebuilt from `it` rather than trusted: the real cloud
     sends both, they are the same list twice, and two copies of one value in one
-    payload is exactly the pair that drifts. `nextTick` and `latest` are the
-    device's own bookkeeping and are passed through untouched.
+    payload is exactly the pair that drifts. Key order in it is the cloud's —
+    alphabetical. `nextTick` and `latest` are recomputed at serve time, and the
+    `v: 2` stamp marks the schedule as seconds-based so the one-time minute
+    migration (`feed.migrate_minute_schedule`) never touches a current save.
     """
     if not isinstance(value, dict):
         return None
@@ -160,30 +168,31 @@ def _clean_feed_schedule(value: Any) -> dict[str, Any] | None:
         for meal in group.get("it") or []:
             if not isinstance(meal, dict):
                 return None
-            minute = to_int(meal.get("t"), None)
-            raw_id = meal.get("id")
-            if isinstance(raw_id, int):
-                raw_id = f"n_{minute}" if minute is not None else f"n_{raw_id}"
-            if not isinstance(raw_id, str) or not raw_id:
-                return None
+            second_of_day = to_int(meal.get("t"), None)
             first = to_int(meal.get("a1"), None)
             second = to_int(meal.get("a2"), 0)
-            if minute is None or first is None or second is None:
+            if second_of_day is None or first is None or second is None:
                 return None
-            if not 0 <= minute < DAY_MINUTES:
+            if not 0 <= second_of_day < DAY_SECONDS:
                 return None
             if not (0 <= first <= 255 and 0 <= second <= 255):
                 return None
-            meals.append({"id": raw_id, "t": minute, "a1": first, "a2": second})
+            raw_id = meal.get("id")
+            if not isinstance(raw_id, str) or not raw_id:
+                raw_id = f"n_{second_of_day}"
+            meals.append(
+                {"id": raw_id, "t": second_of_day, "a1": first, "a2": second})
 
         groups.append({
             "re": ",".join(str(d) for d in sorted(set(days))),
             "it": meals,
-            "itemJsonString": json.dumps(meals, separators=(",", ":")),
+            "itemJsonString": json.dumps(
+                meals, separators=(",", ":"), sort_keys=True),
         })
 
     cleaned = dict(value)
     cleaned["schedule"] = groups
+    cleaned["v"] = 2
     return cleaned
 
 
@@ -230,9 +239,12 @@ async def api_save_schedule(request: web.Request) -> web.Response:
         _push_feed_get(d, hub, bridge, feed)
         now = time.time()
         latest = _build_latest(feed, now)
+        wire_groups = []
+        for g in feed.get("schedule", []):
+            wire_groups.append({"re": g.get("re", ""), "it": g.get("it", [])})
         wire = {
-            "schedule": feed.get("schedule", []),
-            "nextTick": min((e["t"] for e in latest), default=7200),
+            "schedule": wire_groups,
+            "nextTick": _compute_next_tick(latest),
             "latest": latest,
         }
         mqtt_cmd = make_mqtt_property_set(

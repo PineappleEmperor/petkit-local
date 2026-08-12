@@ -378,11 +378,37 @@ async def test_a_feeding_schedule_is_stored_and_pushed():
                    "nextTick": 0, "latest": []}
         status, out = await _save(c, "feed_schedule", payload)
         assert status == 200
-        assert reg.get(1).config["feed_schedule"] == payload
+        # Stored as sent, plus the v:2 stamp that marks it seconds-based
+        # (feed.migrate_minute_schedule).
+        assert reg.get(1).config["feed_schedule"] == {**payload, "v": 2}
         assert bridge.sent
         _did, suffix, envelope = bridge.sent[0]
         assert suffix == "property/set"
-        assert "feed" in envelope["params"]
+        wire = json.loads(envelope["params"]["feed"])
+        # The wire shape is the cloud's: no itemJsonString in property.set,
+        # and an empty latest carries the cloud's 86340 constant.
+        assert set(wire.keys()) == {"schedule", "nextTick", "latest"}
+        assert all("itemJsonString" not in g for g in wire["schedule"])
+        assert wire["nextTick"] == 86340 and wire["latest"] == []
+    finally:
+        await c.close()
+
+
+async def test_a_meal_id_is_regenerated_when_not_a_string():
+    """The firmware reads `id` with cJSON_GetStringValue — an int id is a NULL
+    pointer and a crash. Anything that is not a non-empty string comes back as
+    the cloud's own `n_<seconds>` scheme."""
+    app, reg, bridge = _panel("d4sh")
+    c = await _client(app)
+    try:
+        payload = {"schedule": [{"re": "1", "it": [
+            {"id": 1, "t": 46560, "a1": 1, "a2": 0},
+            {"t": 50100, "a1": 1, "a2": 0},
+        ]}]}
+        status, _ = await _save(c, "feed_schedule", payload)
+        assert status == 200
+        meals = reg.get(1).config["feed_schedule"]["schedule"][0]["it"]
+        assert [m["id"] for m in meals] == ["n_46560", "n_50100"]
     finally:
         await c.close()
 
@@ -493,10 +519,9 @@ async def test_a_feeding_schedule_keeps_the_devices_own_bookkeeping():
     {"schedule": "not a list"},
     [],
     {"schedule": [{"re": "8", "it": []}]},                          # weekdays run 1..7
-    {"schedule": [{"re": "1", "it": [{"id": 1, "t": 1440, "a1": 1}]}]},   # past the day
+    {"schedule": [{"re": "1", "it": [{"id": 1, "t": 86400, "a1": 1}]}]},  # past the day
     {"schedule": [{"re": "1", "it": [{"id": 1, "t": 60, "a1": 256}]}]},   # wraps a byte
     {"schedule": [{"re": "1", "it": [{"id": 1, "t": 60, "a1": -1}]}]},
-    {"schedule": [{"re": "1", "it": [{"t": 60, "a1": 1}]}]},         # no id
 ])
 async def test_a_malformed_feeding_schedule_is_refused(bad):
     app, reg, bridge = _panel("d4sh")
