@@ -390,6 +390,26 @@ onAction('ble-unpair', async el => {
   loadDevices();
 });
 
+// An empty box means "no override", which is a real value here and not a
+// missing one — it hands the device back to whatever it reported for itself.
+onAction('set-timezone', el => {
+  const box = el.closest('.ctrl').querySelector('[data-input="tz-offset"]');
+  const raw = (box.value || '').trim();
+  setTimezone(Number(el.dataset.id), raw === '' ? null : Number(raw));
+});
+async function setTimezone(id, offset) {
+  const r = await api('devices/' + id + '/timezone', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ timezone: offset }),
+  });
+  if (!r.ok) return toast('Error: ' + (r.error || 'failed'));
+  // "Sent" is not "visible": the device applies it at once but only echoes it
+  // back on its next property post, which arrives on its own schedule.
+  toast(r.delivered === 'mqtt' ? 'Sent to the device' : 'Saved — applies on its next check-in');
+  loadDevices();
+}
+
 onChange('set-log-upload', el => setLogUpload(Number(el.dataset.id), el.checked));
 async function setLogUpload(id, on) {
   const r = await api('devices/' + id + '/logs', {
@@ -530,6 +550,28 @@ function renderPanelBody(d) {
     <div class="ctrls">${Object.entries(d.capInfo.capabilities)
       .map(([ct, on]) => capRow(d.id, ct, on))
       .join('')}</div></div>`
+      : ''
+  }
+
+  ${
+    d.timezoneInfo
+      ? `<div class="card"><h3>Timezone${help(
+          'The device has no clock of its own: it is given an offset once, over Bluetooth, and burns it into its video watermarks. Setting one here pushes it to a device that is already paired, so a box provisioned before this field existed can be corrected without re-provisioning. The device reports back to one decimal, so 5.75 reads as 5.8.',
+        )}</h3>
+    <p class="sub">Effective <b>UTC${d.timezoneInfo.effective >= 0 ? '+' : ''}${esc(d.timezoneInfo.effective)}</b>, from ${
+      {
+        override: 'this override',
+        device: 'what the device reported',
+        server: "this server's clock",
+      }[d.timezoneInfo.source] || d.timezoneInfo.source
+    }${d.timezoneInfo.locale ? ` · ${esc(d.timezoneInfo.locale)}` : ''}${
+      d.timezoneInfo.reported != null ? ` · device said ${esc(d.timezoneInfo.reported)}` : ''
+    }</p>
+    <div class="ctrls"><label class="ctrl"><span>Offset from UTC</span>
+      <span class="cn"><input type="number" min="-12" max="14" step="0.25" placeholder="auto"
+        value="${d.timezoneInfo.override == null ? '' : esc(d.timezoneInfo.override)}"
+        data-input="tz-offset" data-id="${esc(d.id)}">
+      <button class="mini" data-action="set-timezone" data-id="${esc(d.id)}">Set</button></span></label></div></div>`
       : ''
   }
 

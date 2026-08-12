@@ -10,6 +10,7 @@ for anything scripting the API, and share their bodies with the detail.
 """
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
@@ -18,14 +19,20 @@ from petkit_local.devices import defaults
 from petkit_local.devices.base import Device
 from petkit_local.devices.state_parsers import apply_consumable_state
 from petkit_local.ha.categories import get_entities_for_device
-from petkit_local.ha.commands import ALL_ACTIONS, Refused, handle_ha_command
+from petkit_local.ha.commands import (
+    ALL_ACTIONS, PROPERTY_SET_SUFFIX, Refused, handle_ha_command,
+    make_mqtt_property_set,
+)
 from petkit_local.media.go2rtc import stream_urls_with_rtsp
 from petkit_local.mqtt.broker import delivery_view
+from petkit_local.utils.coerce import to_float
 from petkit_local.utils.const import device_display_name
 from petkit_local.utils.dicts import dig_path
 from petkit_local.web.api._common import (
     _deliver, _device_log_reason, _device_or_404, _json_body,
 )
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from petkit_local.devices.ble import BLERegistry
@@ -127,7 +134,7 @@ async def api_devices(request: web.Request) -> web.Response:
     return web.json_response([_device_summary(d, ble, hub, request.app.get("mqtt_broker")) for d in reg.all()])
 
 
-# --- device detail: the three sidecar views --------------------------------
+# --- device detail: the four sidecar views ---------------------------------
 # Each of these is the GET body of its own endpoint AND part of the device
 # detail. They live here so the two can never answer differently: the panel
 # renders one device from one request, and the standalone endpoints stay for
@@ -139,6 +146,25 @@ def _capabilities_view(d: Device) -> dict[str, Any]:
     return {
         "is_camera": d.is_camera,
         "capabilities": {ct: (ct in enabled) for ct in Device.CAPABILITY_TYPES},
+    }
+
+
+def _timezone_view(d: Device) -> dict[str, Any]:
+    """The effective UTC offset and each source that could have supplied it.
+
+    All three are shown because an effective `0.0` otherwise gives no clue
+    whether UTC was chosen or merely inherited — and a device provisioned
+    before the BLE payload carried a timezone reports exactly that.
+    """
+    override = to_float(d.config.get("timezone"), None)
+    reported = to_float(d.config.get("reported_timezone"), None)
+    return {
+        "effective": d.timezone_offset,
+        "override": override,
+        "reported": reported,
+        "locale": d.config.get("locale", ""),
+        "source": "override" if override is not None
+        else "device" if reported is not None else "server",
     }
 
 
@@ -222,6 +248,7 @@ async def api_device_detail(request: web.Request) -> web.Response:
         # per device refreshing on every WebSocket tick, four requests each was
         # the difference between idle and a steady stream of them.
         "capInfo": _capabilities_view(d) if d.is_camera else None,
+        "timezoneInfo": _timezone_view(d),
         "logInfo": _log_settings_view(d, request),
         "aiInfo": _ai_view(d) if d.supports_ai else None,
     })
@@ -307,6 +334,67 @@ async def api_send_command(request: web.Request) -> web.Response:
             return web.json_response({"error": "need action, entity+value, or suffix+payload"}, status=400)
 
     return await _deliver(hub, bridge, d, suffix, envelope, transport)
+
+
+_TZ_MIN, _TZ_MAX = -12.0, 14.0
+
+
+async def api_timezone(request: web.Request) -> web.Response:
+    """GET/POST this device's fixed UTC offset override.
+
+    POST takes `{"timezone": 5.75}` (a numeric string is accepted, for the HTML
+    number input) or `{"timezone": null}` to go back to automatic. The value is
+    persisted and used by `dev_signup` and `dev_device_info` from their next
+    request, and pushed to a device that is on MQTT right away.
+
+    **The MQTT value is a STRING and that is not a style choice.**
+    `parse_recv_property_set_normal` reads `cJSON.valuestring` and calls
+    `atof()`, so a JSON number leaves `valuestring` NULL and the write is a
+    silent no-op -- verified on a live T5, where `5.75` as a number changed
+    nothing for minutes and `"5.75"` moved the video watermark within ~30
+    seconds. The HTTP payloads keep sending a NUMBER for the same field,
+    because that is what their parser reads.
+
+    Readback is lossy: the device reports its own `%.1f`, so `5.75` comes back
+    as `5.8`. Delivery is immediate but the echo waits for an irregular
+    `property/post`, so "sent" is not "visible".
+    """
+    reg = request.app["registry"]
+    d = _device_or_404(request)
+
+    if request.method == "GET":
+        return web.json_response(_timezone_view(d))
+
+    body = await _json_body(request)
+    if "timezone" not in body:
+        return web.json_response({"error": "need timezone"}, status=400)
+
+    raw = body["timezone"]
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        d.config.pop("timezone", None)
+    else:
+        # `bool` is an int in Python and would coerce to 0.0/1.0 as an offset.
+        value = None if isinstance(raw, bool) else to_float(raw, None)
+        if value is None or not _TZ_MIN <= value <= _TZ_MAX:
+            return web.json_response(
+                {"error": f"timezone must be a number between {_TZ_MIN:g} "
+                          f"and {_TZ_MAX:g}"}, status=400)
+        d.config["timezone"] = value
+    reg.save()
+
+    delivered = "next-device-info"
+    bridge = request.app.get("bridge")
+    if d.mqtt_connected and bridge is not None and getattr(bridge, "_client", None):
+        envelope = make_mqtt_property_set({"timezone": f"{d.timezone_offset:g}"})
+        try:
+            await bridge.publish_to_device(d, PROPERTY_SET_SUFFIX, envelope)
+            delivered = "mqtt"
+        except Exception as exc:  # noqa: BLE001 - transport failure is not a rejection
+            # The stored value is authoritative either way; the device picks it
+            # up from `dev_device_info` if the publish did not land.
+            log.warning("timezone push failed for device %d: %s", d.petkit_id, exc)
+
+    return web.json_response({"ok": True, "delivered": delivered, **_timezone_view(d)})
 
 
 async def api_capabilities(request: web.Request) -> web.Response:

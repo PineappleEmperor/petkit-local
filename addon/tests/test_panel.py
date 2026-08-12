@@ -1668,3 +1668,67 @@ async def test_a_hash_versioned_module_is_cacheable_forever():
         assert css.headers.get("Cache-Control") == "no-cache"
     finally:
         await c.close()
+
+
+async def test_timezone_override_is_pushed_as_a_STRING():
+    """The type is the whole fix, not a formatting preference.
+
+    `parse_recv_property_set_normal` reads `cJSON.valuestring` and calls
+    `atof()`, so a JSON number leaves `valuestring` NULL and the write is a
+    silent no-op. Verified on a live T5: `5.75` as a number changed nothing for
+    minutes; `"5.75"` moved the video watermark within ~30 seconds.
+    """
+    reg = DeviceRegistry()
+    reg.get_or_create(petkit_id=1, device_type="t5", serial_number="SN")
+    reg.get(1).mqtt_connected = True
+    bridge = FakeBridge(connected=True)
+    app, reg, hub = _panel(reg=reg, bridge=bridge)
+    c = await _mk_client(app)
+    try:
+        r = await c.post("/api/devices/1/timezone", data=json.dumps({"timezone": 5.75}))
+        out = await r.json()
+        assert out["ok"] and out["delivered"] == "mqtt"
+        assert out["override"] == 5.75 and out["source"] == "override"
+
+        _, suffix, envelope = bridge.sent[0]
+        assert suffix == "property/set"
+        sent = envelope["params"]["timezone"]
+        assert isinstance(sent, str), f"sent as {type(sent).__name__}, would be a no-op"
+        assert sent == "5.75"
+
+        # And the HTTP payloads keep sending a number, which is what THEIR
+        # parser reads — the two transports disagree about the type on purpose.
+        from petkit_local.devices.payloads import to_device_info
+        assert to_device_info(reg.get(1))["result"]["timezone"] == 5.75
+    finally:
+        await c.close()
+
+
+async def test_clearing_the_timezone_override_falls_back_to_what_the_device_said():
+    reg = DeviceRegistry()
+    reg.get_or_create(petkit_id=1, device_type="t5", serial_number="SN")
+    reg.get(1).config["reported_timezone"] = -4.0
+    app, reg, hub = _panel(reg=reg, bridge=None)
+    c = await _mk_client(app)
+    try:
+        await c.post("/api/devices/1/timezone", data=json.dumps({"timezone": 2}))
+        r = await c.post("/api/devices/1/timezone", data=json.dumps({"timezone": None}))
+        out = await r.json()
+        assert out["override"] is None
+        assert out["effective"] == -4.0 and out["source"] == "device"
+    finally:
+        await c.close()
+
+
+async def test_an_impossible_offset_is_refused():
+    reg = DeviceRegistry()
+    reg.get_or_create(petkit_id=1, device_type="t5", serial_number="SN")
+    app, reg, hub = _panel(reg=reg, bridge=None)
+    c = await _mk_client(app)
+    try:
+        for bad in (99, -99, "nonsense", True):
+            r = await c.post("/api/devices/1/timezone", data=json.dumps({"timezone": bad}))
+            assert r.status == 400, f"accepted {bad!r}"
+        assert "timezone" not in reg.get(1).config
+    finally:
+        await c.close()

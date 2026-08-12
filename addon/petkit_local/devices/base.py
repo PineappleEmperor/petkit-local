@@ -319,11 +319,14 @@ class Device:
         in UTC-4 that it was at UTC+2.
 
         A hardcoded constant is not an option here: any fixed offset is wrong
-        for half the year anywhere that observes DST. Note that answering
-        correctly does NOT fix the device's video watermarks either — the
-        firmware takes its timezone from the BLE provisioning payload, not from
-        this response, so a device provisioned without one renders UTC
-        regardless of what we say here.
+        for half the year anywhere that observes DST.
+
+        Answering this correctly does not by itself fix the device's video
+        watermarks — the firmware does not take its clock from this response.
+        It CAN be fixed without re-provisioning, though: a `property.set`
+        carrying `timezone` as a JSON STRING moves it, verified on a live T5.
+        `web/api/devices.py::api_timezone` is the path that does both, and the
+        string is not a detail — see the note there.
         """
         override = to_float(self.config.get("timezone"), None)
         if override is not None:
