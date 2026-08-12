@@ -529,7 +529,14 @@ TALK_SINK_SCRIPT = (
     "#!/bin/sh\n"
     "F=/tmp/pktalk.$$\n"
     "rm -f $F; mknod $F p\n"
-    "LD_LIBRARY_PATH=/syslib/lib:/app/lib:/system/lib:/usr/lib:/lib "
+    # /app/bin FIRST: that is where `libbase.so` (and pktool's other deps) live on
+    # the D4SH — the firmware's own `media` process runs with LD_LIBRARY_PATH=
+    # /app/bin:/usr/lib. Without it pktool dies at load ("libbase.so: cannot open
+    # shared object file"), which also WEDGED the listener: a pktool that never
+    # opens the FIFO leaves `cat > $F` blocked forever, and `nc -e` has replaced
+    # the accept loop, so one connection killed the port. The rest of the path is
+    # kept as a fallback for models that place the lib elsewhere (T6).
+    "LD_LIBRARY_PATH=/app/bin:/syslib/lib:/app/lib:/system/lib:/usr/lib:/lib "
     "/app/bin/pktool play_aac $F &\n"
     "cat > $F\n"
     "rm -f $F\n"
