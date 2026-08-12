@@ -518,11 +518,13 @@ class HAPublisher:
             state["streamUrl"] = rtsp
         else:
             state.pop("streamUrl", None)
-        settings = device.config.get("settings")
-        if not settings:
-            # Fall back to defaults so switch/number/select entities render a
-            # value instead of "unknown" before the first setting change.
-            settings = defaults.default_settings(device)
+        # Defaults MERGED UNDER what is stored, not substituted for it. A
+        # settings write records only the field it changed, so substituting
+        # made the first change to any setting the moment every OTHER
+        # switch/number/select on that device went "unknown" — the stored dict
+        # had exactly one key and the defaults were no longer consulted.
+        settings = {**defaults.default_settings(device),
+                    **(device.config.get("settings") or {})}
         # `schedule`/`feed_schedule` back the raw-JSON text entities.
         enabled = device.enabled_capabilities()
         return {

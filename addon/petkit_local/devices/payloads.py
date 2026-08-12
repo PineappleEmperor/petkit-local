@@ -153,13 +153,20 @@ def to_device_info(device: Device, ble_registry: BLERegistry | None = None) -> d
     given, the embedded K3 purifier block (`withK3`, `k3Device`,
     `settings.k3Config`) for whichever K3 is linked to this device.
 
-    NOTE, and unlike its siblings, this method is NOT pure: the `settings`
-    block in the result is the device's own `config["settings"]` dict rather
-    than a copy, so writing `k3Config` into it also writes it into the
-    stored config that gets persisted, where it outlives the K3 being
-    unlinked (nothing removes the key again).
+    The `settings` block is the seeded defaults MERGED UNDER whatever has been
+    stored, not one or the other. A settings write records only the field it
+    changed (`ha/commands.py` sets a single key), so serving the stored dict
+    alone shrank this block from every default to the one key somebody last
+    touched — and the device reads it as its entire configuration. The symptom
+    is loudest on a fountain, which reports no settings of its own and so has
+    nothing to refill the block with.
+
+    NOTE, and unlike its siblings, this method is NOT pure: `k3Config` is
+    written into the stored config as well as the answer, so it outlives the
+    K3 being unlinked (nothing removes the key again).
     """
-    settings = device.config.get("settings", {})
+    stored = device.config.get("settings", {})
+    settings = {**default_settings(device), **stored}
     result = {
         "id": device.petkit_id,
         "mac": device.mac,
@@ -170,7 +177,7 @@ def to_device_info(device: Device, ble_registry: BLERegistry | None = None) -> d
         "shareOpen": 0,
         "modelCode": 2,
         "btMac": device.config.get("bt_mac", ""),
-        "settings": settings if settings else default_settings(device),
+        "settings": settings,
         "multiConfig": True,
         "petInTipLimit": 15,
         "p2pType": 2,
@@ -222,7 +229,13 @@ def to_device_info(device: Device, ble_registry: BLERegistry | None = None) -> d
                 "sn": k3.serial_number,
                 "secret": k3.secret,
             }
-            result["settings"]["k3Config"] = {"config": k3.config}
+            # Written to the STORED settings as well as to the answer. This
+            # used to happen implicitly, by the answer BEING the stored dict;
+            # the merge above ends that identity, so the persistence it relied
+            # on is now stated instead of inherited.
+            k3_config = {"config": k3.config}
+            device.config.setdefault("settings", {})["k3Config"] = k3_config
+            result["settings"]["k3Config"] = k3_config
         else:
             result["withK3"] = 0
 

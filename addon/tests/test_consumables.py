@@ -151,3 +151,27 @@ def test_the_countdowns_are_ready_before_the_device_says_anything():
 
     doc = _state_doc(restarted)
     assert doc["state"]["deodorantLeftDays"] == DEODORANT_TOTAL_DAYS - 4
+
+
+def test_a_settings_write_does_not_shrink_the_served_block():
+    """One changed field must not erase every other default from the answer.
+
+    `handle_ha_command` stores only the key it changed, and both the device
+    payload and the HA state document used to SUBSTITUTE the stored dict for
+    the defaults rather than merge. So the first change to any setting cut
+    `dev_device_info`'s settings block down to that one key — and the device
+    reads that block as its whole configuration. A fountain shows it worst:
+    it reports no settings of its own, so nothing refills the block.
+    """
+    from petkit_local.devices.defaults import default_settings
+    from petkit_local.devices.payloads import to_device_info
+
+    dev = Device(device_type="w7h", petkit_id=9)
+    full = set(default_settings(dev))
+    assert len(full) > 1
+
+    dev.config.setdefault("settings", {})["manualLock"] = 1
+    served = to_device_info(dev)["result"]["settings"]
+
+    assert full <= set(served), "defaults were dropped by a single write"
+    assert served["manualLock"] == 1, "the stored value must win over the default"
