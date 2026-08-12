@@ -642,13 +642,14 @@ def event_label(event_type: str | None,
         trigger = TRIGGER_SHORT.get(
             to_int((content or {}).get("start_reason"), None))
         if noun != code.done_word:
-            # A directional event already says what happened ("light on"), so
-            # appending "completed" would only pad it.
             label = f"{trigger} {noun}" if trigger else noun
         else:
-            outcome, _ = _result_field(result)
-            if result == 3 and (content or {}).get("kitten"):
-                outcome = RESULT_KITTEN
+            if code.kind == codes.KIND_FEEDING:
+                outcome, _ = _enum(_FEED_RESULT, result, "result {n}")
+            else:
+                outcome, _ = _result_field(result)
+                if result == 3 and (content or {}).get("kitten"):
+                    outcome = RESULT_KITTEN
             label = f"{trigger} {noun} {outcome}" if trigger \
                 else f"{noun} {outcome}"
     elif code.mode_from:

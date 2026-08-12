@@ -1041,20 +1041,17 @@ FEED_SRC: dict[int, str] = {
 #: The owner then watched every later feed and never saw 8 again, including the
 #: ones that dispensed normally. So it accompanies a feed that put out nothing;
 #: whether it names the cause or only the outcome is not settled.
+#: Keyed by `content.result` in a feed_over event. NOT `err_code` — the two are
+#: parallel fields that carry different things (`err_code` names the fault,
+#: `result` names the outcome).
 FEED_RESULT: dict[int, str] = {
-    0: "dispensed",
-    3: "blocked",
-    #: Seen twice in a D4SH capture, each time with `err_code: 7` on the same
-    #: feed -- so it names a fault rather than an outcome, and what the fault
-    #: IS has no source. Listed because rendering it as `error 7` implied we
-    #: had never seen it.
+    0: "completed",
+    3: "blocked (outlet obstructed)",
     7: "failed (error 7)",
-    8: "nothing dispensed",
-    #: Observed twice on a live D4SH with both hoppers empty (food1=0, food2=0),
-    #: err_code=0, real_amount=0/0. Distinct from 8 (which carries err_code=8).
-    9: "no food",
-    10: "skipped",
-    11: "nothing dispensed",
+    8: "failed (nothing dispensed)",
+    9: "skipped (hoppers empty)",
+    10: "skipped (bowl not empty)",
+    11: "failed (empty run)",
 }
 
 
