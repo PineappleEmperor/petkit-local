@@ -81,6 +81,16 @@ class PersistedRegistry:
         self._dirty = False
         self._flush_task: asyncio.Task[None] | None = None
         self._flush_loop: asyncio.AbstractEventLoop | None = None
+        # Said once at startup, because the answer is the first thing anybody
+        # needs when state that should have survived a restart did not. It is
+        # also the only place the difference between "persisting" and "not"
+        # is visible at all -- everything downstream behaves identically until
+        # the container is replaced.
+        if self._persist_path:
+            log.info("%s persists to %s", self._label, self._persist_path)
+        else:
+            log.warning("%s is IN MEMORY ONLY -- nothing it holds survives a restart",
+                        self._label)
         if self._persist_path and self._persist_path.exists():
             self._load()
 
@@ -105,6 +115,15 @@ class PersistedRegistry:
         `mark_dirty()` instead.
         """
         if not self._persist_path:
+            # Loud, and not `debug`. Everything this registry holds that the
+            # device cannot tell us again lives or dies by this file --
+            # `active_patchers` most visibly, since a device re-registers with
+            # its own id and looks entirely healthy while our record of what
+            # was patched onto it is gone. Silence here made "all my patchers
+            # say not applied after an update" impossible to diagnose from the
+            # log, which is the first place anybody looks.
+            log.warning("%s is NOT being persisted: no storage path is configured. "
+                        "Everything it holds is lost on restart.", self._label)
             self._dirty = False
             return
         payload = self._serialize()
@@ -343,6 +362,15 @@ class DeviceRegistry(PersistedRegistry):
             if d.serial_number == serial_number:
                 return d
         return None
+
+    def remove(self, petkit_id: int) -> Device | None:
+        """Delete a device permanently. Returns it, or None if not found."""
+        device = self._devices.pop(petkit_id, None)
+        if device is not None:
+            log.info("Device removed: type=%s id=%d sn=%s",
+                     device.device_type, petkit_id, device.serial_number)
+            self.save()
+        return device
 
     def _serialize(self) -> dict[str, Any]:
         """`{"<petkit_id>": Device.to_dict()}` — the shape of devices.json."""

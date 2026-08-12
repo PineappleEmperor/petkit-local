@@ -1424,7 +1424,7 @@ details.adv summary {
   background: rgba(239, 68, 68, 0.16);
   color: var(--bad);
 }
-/* thumbnails: preserve aspect ratio (device video is square) — contain, never crop */
+/* thumbnails: preserve aspect ratio — contain, never crop */
 .tl-media {
   display: flex;
   gap: 8px;
@@ -1442,7 +1442,6 @@ details.adv summary {
   cursor: pointer;
   flex: none;
   border: 1px solid var(--line);
-  aspect-ratio: 1/1;
 }
 .tl-thumb.small {
   width: 104px;
@@ -1450,8 +1449,6 @@ details.adv summary {
 .tl-thumb img,
 .tl-thumb video {
   width: 100%;
-  height: 100%;
-  object-fit: contain;
   display: block;
   background: #000;
 }

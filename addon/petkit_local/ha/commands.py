@@ -29,6 +29,8 @@ from petkit_local.events import codes
 from petkit_local.ha.discovery import EntityDef
 from petkit_local.utils.coerce import to_bool, to_float, to_int
 from petkit_local.utils.const import DEVICE_TYPES_FEEDER_DUAL, DEVICE_TYPES_FEEDER_NEXT_GEN
+from petkit_local.http.handlers.feed import _build_latest as _feed_latest
+from petkit_local.http.handlers.feed import _compute_next_tick as _feed_next_tick
 from petkit_local.utils.timeutil import local_day_start
 
 log = logging.getLogger(__name__)
@@ -133,7 +135,8 @@ def make_mqtt_property_set(params: dict) -> dict[str, Any]:
 
 #: Button key -> the consumable whose replacement date it stamps. Both still
 #: send their device command as well; this only adds the record we keep.
-CONSUMABLE_BUTTONS = {"reset_n50": "n50", "reset_n60": "n60"}
+CONSUMABLE_BUTTONS = {"reset_n50": "n50", "reset_n60": "n60",
+                      "reset_desiccant": "desiccant"}
 
 
 def _litter_start(code: int) -> Command:
@@ -350,6 +353,11 @@ FEEDER_ACTIONS = {
         PROPERTY_SET_SUFFIX, make_mqtt_property_set({"desiccantTime": 0})),
     "food_replenished": lambda device: (
         PROPERTY_SET_SUFFIX, make_mqtt_property_set({"food": 1})),
+    "play_sound": lambda device: (
+        "play_sound",
+        _envelope("thing.service.play_sound", {
+            "soundId": (device.config.get("settings") or {}).get("selectedSound", -1),
+        })),
 }
 
 def _fountain_start(code: int) -> Command:
@@ -546,6 +554,26 @@ def handle_ha_command(device: Device, entity: EntityDef, payload: str) -> Comman
             parsed = payload
         device.config[key] = parsed
         log.info("Set config[%s] for device %d", key, device.petkit_id)
+        if key == "feed_schedule" and isinstance(parsed, dict):
+            # A raw save is current-format by definition — the stamp keeps the
+            # one-time minute migration (feed.migrate_minute_schedule) off it.
+            parsed["v"] = 2
+            device.command_queue.append({"msgType": 1,
+                                         "payload": {"feed_get": "1"},
+                                         "timestamp": int(time.time())})
+            latest = _feed_latest(parsed, time.time())
+            wire_groups = [{"re": g.get("re", ""), "it": g.get("it", [])}
+                           for g in parsed.get("schedule", [])]
+            wire = {
+                "schedule": wire_groups,
+                "nextTick": _feed_next_tick(latest),
+                "latest": latest,
+            }
+            return (PROPERTY_SET_SUFFIX, make_mqtt_property_set(
+                {"feed": json.dumps(wire, separators=(",", ":"))}))
+        if key == "schedule" and isinstance(parsed, (dict, list)):
+            return (PROPERTY_SET_SUFFIX, make_mqtt_property_set(
+                {"schedule": json.dumps(parsed, separators=(",", ":"))}))
         return None
 
     if comp not in ("switch", "number", "select", "time"):

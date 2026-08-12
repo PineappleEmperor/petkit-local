@@ -402,6 +402,20 @@ LITTER_HTTP_CODES: dict[str, EventCode] = {
              "related_event value is an unquoted bare token) -- see "
              "ingest._repair_bare_values.",
     ),
+    "51": EventCode(
+        kind=KIND_SYSTEM, label="BLE relay started", detail=True,
+        families=LITTER_NEXT_GEN,
+        note="Confirmed on a T5 (fw 943, HTTP capture). Content "
+             "{start_time, start_reason, action, device: {mac, type}}. "
+             "The MQTT equivalent is ble_relay_start/post.",
+    ),
+    "53": EventCode(
+        kind=KIND_SYSTEM, label="BLE relay data", detail=True,
+        families=LITTER_NEXT_GEN,
+        note="Confirmed on a T5 (fw 943, HTTP capture). Content "
+             "{payload: [{cmd, data}], device: {type, mac}}. "
+             "The MQTT equivalent is ble_response/post.",
+    ),
 }
 
 #: Codes absent from both the firmware RE and our wire. Left unmapped on
@@ -410,16 +424,14 @@ LITTER_HTTP_CODES: dict[str, EventCode] = {
 UNKNOWN_HTTP_CODES = frozenset({"12", "19", "22", "23"})
 
 
-#: Feeder HTTP codes. Sparse on purpose: the D4H's `ctrl` has no
-#: `*_event_report` wrappers except `pk_event_report` itself, so every code
-#: except `feed_over` is set inside a `pk_event_pack_*` body behind a dispatch
-#: (a0=6, a1=0x3e, a2=2) that the disassembly does not resolve to a constant.
-#: Guessing the rest from the litter table is precisely the mistake this
-#: per-category split exists to prevent.
+#: Feeder HTTP codes. Code 2 came from the D4H firmware RE; codes 3 and 4
+#: were confirmed on a live D4SH (fw 248, HTTP). The D4H's `ctrl` has no
+#: `*_event_report` wrappers except `pk_event_report` itself, so further codes
+#: are set inside a `pk_event_pack_*` body behind a dispatch that the
+#: disassembly does not resolve to a constant.
 #:
 #: Known pack functions without a recovered code: eat_start, eat_over,
-#: move_event, pet_event, err_start, err_over, relay_start, relay_over,
-#: relay_response, feed_start.
+#: pet_event, err_start, err_over, relay_start, relay_over, relay_response.
 FEEDER_HTTP_CODES: dict[str, EventCode] = {
     "2": EventCode(
         kind=KIND_FEEDING, label="Feeding done", anchor=True, role=ROLE_DONE,
@@ -429,6 +441,101 @@ FEEDER_HTTP_CODES: dict[str, EventCode] = {
              "`feed_over` here and `err_over` on a litter box. Content is "
              "{id, day, manual, time, online_state, eat_video, state}.",
     ),
+    "3": EventCode(
+        kind=KIND_FEEDING, label="Feeding started", detail=True,
+        role=ROLE_START, families=FEEDER,
+        note="Confirmed on a live D4SH (fw 248, HTTP). Content "
+             "{id, day, manual, time, online_state} matches MQTT "
+             "feed_start/post from the same model (fw 867). "
+             "state.feeding is 1 or 2 while the motor runs.",
+    ),
+    "4": EventCode(
+        kind=KIND_FEEDING, label="Feeding done", anchor=True,
+        role=ROLE_DONE, done_word="feeding", families=FEEDER,
+        note="Confirmed on a live D4SH (fw 248, HTTP). Content "
+             "{mark, start_time, id, day, manual, time, real_amount1, "
+             "real_amount2, completed_at, result, err_code, media} "
+             "matches MQTT feed_over/post. Coexists with code 2 "
+             "(same kind, simpler shape, from the D4H firmware RE); "
+             "which code a given model sends is not yet settled.",
+    ),
+    "5": EventCode(
+        kind=KIND_FEEDING, label="Eating started", detail=True,
+        role=ROLE_START, grade=INFERRED, families=FEEDER_CAMERA,
+        note="Snapshot event on a live D4SH (fw 248, HTTP), content "
+             "{img, aesKey, mark, start_time} — same shape as codes 7 and 8. "
+             "Read as `eat_start` by the device's OWNER from the attached "
+             "recordings (proxy was off, so not from the app's own labels): "
+             "the clip shows eating beginning. Seen once, ~9 s before a "
+             "feed_over (code 4) at 18:21. The matching firmware pack function "
+             "is pk_event_pack_eat_start_event_msg, but its HTTP event_type "
+             "is not literal in the binary, so the number-to-name link is the "
+             "owner's, not the RE's. NOTE codes are PER CATEGORY: 5 is "
+             "`drink_start` on a fountain and something else again on a litter "
+             "box.",
+    ),
+    "7": EventCode(
+        kind=KIND_MOTION, label="Motion detected", anchor=True,
+        families=FEEDER_CAMERA,
+        note="Confirmed on a live D4SH (fw 248, HTTP). Content "
+             "{img, aesKey, mark, start_time} — a snapshot event, "
+             "same shape as litter code 20 without the detection flags. "
+             "Six occurrences in quick succession (55-190s apart) point to "
+             "motion detection rather than pet identification. "
+             "The firmware has both pk_event_pack_move_event_msg and "
+             "pk_event_pack_pet_event_msg; which one produces this code "
+             "is not resolved.",
+    ),
+    "8": EventCode(
+        kind=KIND_PET, label="Pet detected", anchor=True, grade=INFERRED,
+        families=FEEDER_CAMERA,
+        note="Snapshot event on a live D4SH (fw 248, HTTP), content "
+             "{img, aesKey, mark, start_time} — same shape as codes 5 and 7. "
+             "Read as `pet` (pet appeared) by the device's OWNER from the "
+             "attached recordings (proxy was off, not the app's labels): the "
+             "clip shows the cat. Seen both around feeds (18:21) and standing "
+             "alone well after them (18:29, 21:06), which fits pet appearance "
+             "rather than the feed sequence. Firmware sibling is "
+             "pk_event_pack_pet_event_msg; the HTTP event_type is not literal "
+             "in the binary, so the number-to-name link is the owner's, not "
+             "the RE's. Code 8 is `err_over`-adjacent on other categories — "
+             "these numbers are per-category.",
+    ),
+}
+
+#: Fountain HTTP codes. Sparse until more families have HTTP captures: the W7H
+#: is the only embedded-Linux fountain, and a Bluetooth EverSweet has no HTTP
+#: path at all, so the codes are keyed on `FOUNTAIN_NEXT_GEN`.
+FOUNTAIN_HTTP_CODES: dict[str, EventCode] = {
+    "5": EventCode(
+        kind=KIND_DRINKING, label="Drinking started", detail=True,
+        role=ROLE_START, families=FOUNTAIN_NEXT_GEN,
+        note="Confirmed on a W7H (fw 456, HTTP capture). Content "
+             "{event_start} matches MQTT drink_start/post shape.",
+    ),
+    "6": EventCode(
+        kind=KIND_DRINKING, label="Drinking done", anchor=True,
+        role=ROLE_DONE, done_word="drinking", families=FOUNTAIN_NEXT_GEN,
+        note="Confirmed on a W7H (fw 456, HTTP capture). Content "
+             "{img, aesKey, mark, start_time, event_start, event_end, "
+             "drink_time, media, upload, drinkDetection, pet_id, "
+             "tracker_info, vomit_info} matches MQTT drink_over/post.",
+    ),
+    "20": EventCode(
+        kind=KIND_PET, label="Appeared", anchor=True,
+        families=FOUNTAIN_NEXT_GEN,
+        note="Same role as litter code 20 but a DIFFERENT category table. "
+             "Confirmed on a W7H (fw 456, HTTP capture). Content "
+             "{img, aesKey, mark, start_time, upload, media, petDetection}.",
+    ),
+    "24": EventCode(
+        kind=KIND_PET, label="Detection result", detail=True,
+        role=ROLE_DETECTION, families=FOUNTAIN_NEXT_GEN,
+        note="Same role as litter code 24. Confirmed on a W7H (fw 456). "
+             "Content {related_event, count, area, pet_id, tracker_info, "
+             "vomit_info}. Emitted as INVALID JSON (bare related_event "
+             "token) -- same quirk as litter code 24.",
+    ),
 }
 
 #: Category name -> its HTTP code table. Categories with no recovered codes map
@@ -437,7 +544,7 @@ FEEDER_HTTP_CODES: dict[str, EventCode] = {
 HTTP_CODES_BY_CATEGORY: dict[str, dict[str, EventCode]] = {
     "litter": LITTER_HTTP_CODES,
     "feeder": FEEDER_HTTP_CODES,
-    "fountain": {},
+    "fountain": FOUNTAIN_HTTP_CODES,
     "purifier": {},
 }
 
@@ -520,7 +627,7 @@ MQTT_EVENT_TOPICS: dict[str, EventCode] = {
         kind=KIND_CLEANING, label="Reset done", role=ROLE_DONE,
         done_word="reset", families=LITTER),
     "smooth_over": EventCode(
-        kind=KIND_CLEANING, label="Leveling done", grade=UNVERIFIED,
+        kind=KIND_CLEANING, label="Leveling done", grade=CONFIRMED,
         role=ROLE_DONE, done_word="leveling", families=LITTER_NEXT_GEN),
     "correct_over": EventCode(
         kind=KIND_CLEANING, label="Litter correction done", grade=UNVERIFIED,
@@ -529,7 +636,7 @@ MQTT_EVENT_TOPICS: dict[str, EventCode] = {
         kind=KIND_CLEANING, label="Litter level corrected", grade=UNVERIFIED,
         role=ROLE_DONE, done_word="litter correction", families=LITTER_NEXT_GEN),
     "light_over": EventCode(
-        kind=KIND_CLEANING, label="Light cycle done", grade=UNVERIFIED,
+        kind=KIND_CLEANING, label="Light cycle done", grade=CONFIRMED,
         detail=True, role=ROLE_DONE, done_word="light cycle",
         state_label=("lightState", "light on", "light off"),
         families=LITTER_NEXT_GEN,
@@ -543,7 +650,7 @@ MQTT_EVENT_TOPICS: dict[str, EventCode] = {
              "note records. The second report is a SEPARATE episode with its "
              "own event_id and no link back, so it heads its own card."),
     "spray_over": EventCode(
-        kind=KIND_CLEANING, label="Deodorizing done", grade=UNVERIFIED,
+        kind=KIND_CLEANING, label="Deodorizing done", grade=CONFIRMED,
         role=ROLE_DONE, done_word="deodorizing", families=LITTER_N60,
         note="N60 liquid deodorizer. Present on every model that takes an N60 "
              "refill, not the T5 alone -- see LITTER_N60."),
@@ -562,10 +669,10 @@ MQTT_EVENT_TOPICS: dict[str, EventCode] = {
              "Deliberately NOT in ingest._CLEAN_DONE_WORDS: a consumable reset "
              "is not a clean and must not date Last Clean."),
     "melt_over": EventCode(
-        kind=KIND_CLEANING, label="Melt cycle done", grade=UNVERIFIED,
+        kind=KIND_CLEANING, label="Melt cycle done", grade=CONFIRMED,
         role=ROLE_DONE, done_word="melt cycle", families=LITTER_T6_PLUS),
     "package_over": EventCode(
-        kind=KIND_CLEANING, label="Bagging done", grade=UNVERIFIED,
+        kind=KIND_CLEANING, label="Bagging done", grade=CONFIRMED,
         role=ROLE_DONE, done_word="bagging", families=LITTER_T6_PLUS),
     # -- litter: pet
     "pet_in": EventCode(
@@ -590,13 +697,13 @@ MQTT_EVENT_TOPICS: dict[str, EventCode] = {
         detail=True, families=LITTER_T6_PLUS),
     # -- motor stop (litter)
     "stop_start": EventCode(
-        kind=KIND_CLEANING, label="Motor stop requested", grade=UNVERIFIED,
+        kind=KIND_CLEANING, label="Motor stop requested", grade=CONFIRMED,
         detail=True, role=ROLE_STOP, families=LITTER_NEXT_GEN),
     "stop_suspend": EventCode(
-        kind=KIND_CLEANING, label="Motor stop paused", grade=UNVERIFIED,
+        kind=KIND_CLEANING, label="Motor stop paused", grade=CONFIRMED,
         detail=True, role=ROLE_STOP, families=LITTER_NEXT_GEN),
     "stop_continue": EventCode(
-        kind=KIND_CLEANING, label="Motor stop resumed", grade=UNVERIFIED,
+        kind=KIND_CLEANING, label="Motor stop resumed", grade=CONFIRMED,
         detail=True, role=ROLE_STOP, families=LITTER_NEXT_GEN),
     # -- feeder
     "feed_start": EventCode(
@@ -636,8 +743,21 @@ MQTT_EVENT_TOPICS: dict[str, EventCode] = {
         kind=KIND_CLEANING, label="Refill done", grade=INFERRED, anchor=True,
         role=ROLE_DONE, done_word="refilling", families=FOUNTAIN_NEXT_GEN),
     "drink_over": EventCode(
-        kind=KIND_DRINKING, label="Drinking done", grade=UNVERIFIED,
+        kind=KIND_DRINKING, label="Drinking done", grade=CONFIRMED,
         anchor=True, role=ROLE_DONE, done_word="drinking",
+        families=FOUNTAIN_NEXT_GEN,
+        note="188 in one W7H capture (2026-08-11), with content "
+             "{event_start, img, aesKey, upload, media, mark}. The note that "
+             "this had never been seen is gone with them."),
+    # The two water-treatment jobs, from the same capture: 3 and 2 frames,
+    # content `{img, aesKey, mark, upload, media, event_start, event_end}` --
+    # the `add_water_over` shape, which is what they are siblings of.
+    "flush_over": EventCode(
+        kind=KIND_CLEANING, label="Flush done", anchor=True, role=ROLE_DONE,
+        done_word="flushing", families=FOUNTAIN_NEXT_GEN),
+    "water_change_over": EventCode(
+        kind=KIND_CLEANING, label="Water change done", anchor=True,
+        role=ROLE_DONE, done_word="changing the water",
         families=FOUNTAIN_NEXT_GEN),
     # -- shared detection
     "move_detect": EventCode(
@@ -670,10 +790,10 @@ MQTT_EVENT_TOPICS: dict[str, EventCode] = {
     "ble_response": EventCode(
         kind=KIND_SYSTEM, label="BLE response", detail=True),
     "ble_relay_start": EventCode(
-        kind=KIND_SYSTEM, label="BLE relay started", grade=UNVERIFIED,
+        kind=KIND_SYSTEM, label="BLE relay started", grade=CONFIRMED,
         detail=True),
     "ble_relay_over": EventCode(
-        kind=KIND_SYSTEM, label="BLE relay finished", grade=UNVERIFIED,
+        kind=KIND_SYSTEM, label="BLE relay finished", grade=CONFIRMED,
         detail=True),
 }
 
@@ -820,17 +940,23 @@ SCHEDULE_TYPES: dict[int, str] = {
 #: time=%d,repeats=%d` — so `a1`/`a2` are the per-hopper portions, the same pair
 #: a `feed_realtime` carries on this model, and `re` is the group's weekdays.
 #:
-#: `it` was an EMPTY LIST in every capture we have, which is why this was read
-#: out of the binary rather than off the wire. Two things follow from that:
+#: `it` arrived POPULATED on 2026-08-12 — 21 proxied `dev_feed_get` responses
+#: from the real cloud to a D4SH with meals set. They settle what the earlier
+#: firmware read could not:
 #:
-#:   * The UNIT OF `t` IS INFERRED, not confirmed. Minutes since local midnight
-#:     is what every other schedule time on these devices uses, including the
-#:     litter box's `schedule[].time` confirmed against our own T5 — but nobody
-#:     has watched a feeder receive one. A feeder owner will find out within a
-#:     day of setting one, which is the fastest correction available.
-#:   * `itemJsonString` is NOT read by this parser. It is written alongside `it`
-#:     anyway, because that is what the real cloud sends and there is no reason
-#:     to hand the device a payload a shape narrower than the one it knows.
+#:   * The UNIT OF `t` IS SECONDS since local midnight — `n_46560` fired at
+#:     12:56:00 — NOT the minutes every other schedule time on these devices
+#:     counts (the litter box's `schedule[].time`, confirmed on our T5, is
+#:     minutes). The id is `n_<that same seconds value>`.
+#:   * `latest[]` holds the concrete feeds firing TODAY OR TOMORROW, id
+#:     `s_YYYYMMDD_<secs>` (an instance of a recurring meal) or `d_...` (a
+#:     one-off), with `t` a countdown in seconds from now, floored, recomputed
+#:     every poll. `nextTick` is the countdown of the last `latest` entry, and
+#:     the constant 86340 when `latest` is empty.
+#:   * `itemJsonString` is NOT read by this parser. It is written alongside
+#:     `it` anyway, because that is what the real cloud sends (keys in
+#:     alphabetical order) and there is no reason to hand the device a payload
+#:     a shape narrower than the one it knows.
 FEED_SCHEDULE_ITEM_KEYS = ("id", "t", "a1", "a2")
 
 #: The weekday numbering PetKit uses everywhere a schedule names days:
@@ -951,10 +1077,28 @@ FEED_SRC: dict[int, str] = {
 #: The owner then watched every later feed and never saw 8 again, including the
 #: ones that dispensed normally. So it accompanies a feed that put out nothing;
 #: whether it names the cause or only the outcome is not settled.
+#: Keyed by `content.result` in a feed_over event. NOT `err_code` — the two are
+#: parallel fields that carry different things (`err_code` names the fault,
+#: `result` names the outcome).
+#:
+#: Grading per value:
+#:   0  confirmed — normal completion, amounts > 0
+#:   3  inferred — co-occurs with err_code=4 and zero amounts (capture 2026-08-11)
+#:   7  inferred — co-occurs with err_code=7 (two captures)
+#:   8  inferred — co-occurs with err_code=8, single observation (issue #2)
+#:   9  inferred — firmware sets real_amount=-1 and skips the motor (disasm
+#:      0x426e40), every capture has food1=0/food2=0
+#:  10  inferred — every capture carries surplus_standard=1, firmware reads a
+#:      config field before the branch (disasm 0x427be0), likely surplus control
+#:  11  unverified — observed on a live D4SH, not yet traced in disassembly
 FEED_RESULT: dict[int, str] = {
-    0: "dispensed",
-    8: "nothing dispensed",
-    10: "skipped",
+    0: "completed",
+    3: "blocked (outlet obstructed)",
+    7: "failed (error 7)",
+    8: "failed (nothing dispensed)",
+    9: "skipped (hoppers empty)",
+    10: "skipped (bowl not empty)",
+    11: "failed (empty run)",
 }
 
 
@@ -1058,7 +1202,22 @@ FOUNTAIN_W7H_SET_FIELDS = frozenset({
 #: boxes and feeders send an `err` object too, but no source names their bits,
 #: so they are absent here and their flags render raw: the honest state, and
 #: the reason the lookup below falls back rather than raising.
+#: D4SH (camera feeder) error flags, from the `err{}` object in a state report.
+#: Confirmed on a live D4SH (fw 248, capture 2026-08-11): every state report
+#: carries these 7 keys (plus `serial` when the MCU serial link faults).
+FEEDER_CAMERA_ERROR_FLAGS: dict[str, str] = {
+    "DC": "DC power fault",
+    "sys": "System fault",
+    "rtc_c": "Clock fault",
+    "moto": "Motor fault",
+    "blk_f": "Food outlet blocked",
+    "blk_d": "Dispensing blocked",
+    "camera": "Camera fault",
+    "serial": "Serial communication fault",
+}
+
 ERROR_FLAGS: tuple[tuple[frozenset[str], dict[str, str]], ...] = (
+    (FEEDER_CAMERA, FEEDER_CAMERA_ERROR_FLAGS),
     (FOUNTAIN_NEXT_GEN, FOUNTAIN_W7H_ERROR_FLAGS),
 )
 
@@ -1101,6 +1260,7 @@ def _codes_where(table: dict[str, EventCode], **match: object) -> frozenset[str]
 ALL_EVENT_CODES: dict[str, EventCode] = {
     **MQTT_EVENT_TOPICS,
     **FEEDER_HTTP_CODES,
+    **FOUNTAIN_HTTP_CODES,
     **LITTER_HTTP_CODES,
 }
 

@@ -118,6 +118,12 @@ class RedactionPolicy:
     block_ota: bool = True
     block_log_upload: bool = True
     media_to_real_oss: bool = False
+    #: Replace an upstream cloud-storage window with our standing one.
+    #: Off by default: an expired window from PetKit is a fact about
+    #: somebody's account, and overriding it is a decision rather than a
+    #: transport detail. On, a device whose subscription lapsed keeps
+    #: recording locally instead of silently stopping.
+    local_cvr_window: bool = False
 
 
 # Below the models on purpose: both submodules import them back from here, so

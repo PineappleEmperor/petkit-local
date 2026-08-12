@@ -282,7 +282,26 @@ class BLERelay:
 
         The accessory is identified by MAC, not by the relaying parent: the
         same W5 can in principle be reachable through more than one WiFi
-        device, and the MAC is the only stable key in the frame.
+        device, and the MAC is the only stable key in the frame. That is not
+        hypothetical: one D4SH in the 2026-08-11 capture relays two separate
+        type-14 fountains.
+
+        TWO THINGS THIS DOES NOT DO, both visible in that capture and neither
+        fixed here because neither can be tested without the hardware:
+
+        * `ble_relay_over` is the completion of the CONNECT, not of the data
+          exchange. The order is `connect(1)` -> `ble_relay_start(action=1)`
+          -> `ble_relay_over(result=0)` -> and only THEN the response frames.
+          Anything that treats `relay_over` as the end of a session would cut
+          off everything it was opened for.
+        * A failed write is not retried. `result=6` on `action=1` means the
+          link never came up (73 of 1081 attempts), and the one `cmd 221`
+          write in that capture hit it: the frame was correct, the session
+          died 38 seconds later, and all 237 subsequent reads still showed the
+          setting unchanged. Nothing noticed. A retry belongs here, but it has
+          to be bounded -- this loop already opens a session per accessory per
+          poll, and a retry that races the next poll would leave the parent's
+          radio permanently busy.
         """
         if not self._ble_registry:
             return

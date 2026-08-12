@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from petkit_local.devices.base import Device
 from petkit_local.ha.discovery import EntityDef
 from petkit_local.ha.entities.buttons import (
-    FEEDER_BUTTONS, FEEDER_DUAL_BUTTONS,
+    FEEDER_BUTTONS, FEEDER_CAMERA_BUTTONS, FEEDER_DUAL_BUTTONS,
     FOUNTAIN_BUTTONS, FOUNTAIN_W7H_BUTTONS,
     LITTER_BUTTONS, LITTER_CAMERA_BUTTONS, LITTER_T6_BUTTONS,
 )
@@ -46,6 +46,7 @@ from petkit_local.ha.entities.sensors import (
     FOUNTAIN_BINARY_SENSORS, FOUNTAIN_SENSORS,
     FOUNTAIN_W7H_BINARY_SENSORS, FOUNTAIN_W7H_HALL_SENSORS, FOUNTAIN_W7H_SENSORS,
     LITTER_BINARY_SENSORS, LITTER_CAMERA_HALL_SENSORS, LITTER_CAMERA_SENSORS,
+    LITTER_PACKAGING_SENSORS,
     LITTER_SENSORS,
     PURIFIER_BINARY_SENSORS, PURIFIER_SENSORS,
 )
@@ -185,7 +186,9 @@ CATEGORY_SPECS: dict[str, CategorySpec] = {
         ),
         camera_state_topics=("move_detect", "pet_detect"),
         model_entities=(
-            ("t6", LITTER_T6_BUTTONS),
+            # The Purobot Ultra is the only litter box with a bagging
+            # mechanism, and the only one that reports its state.
+            ("t6", (*LITTER_T6_BUTTONS, *LITTER_PACKAGING_SENSORS)),
         ),
         # The Purobot Ultra has no N50 cartridge, so the button that claims to
         # reset one cannot be right on this model — and it is not merely inert.
@@ -211,6 +214,7 @@ CATEGORY_SPECS: dict[str, CategorySpec] = {
             *FEEDER_SCHEDULE_TEXT,
         ),
         camera_entities=(*FEEDER_CAMERA_SWITCHES, *FEEDER_CAMERA_NUMBERS,
+                         *FEEDER_CAMERA_BUTTONS,
                          *_COMMON_CAMERA_ENTITIES),
         state_topics=(
             "feed_start", "feed_stop", "feed_over",

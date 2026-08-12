@@ -3,6 +3,7 @@ import { onAction, onChange, onSection } from './delegate.js';
 import { help } from './help.js';
 import { DEV_DETAIL, devPanel, ENTITY_SECTION, scheduleDetail } from './devices.js';
 import { setEntity } from './commands.js';
+import { controlRow } from './entities.js';
 
 onAction('save-schedule', el => {
   const box = el.closest('.sched');
@@ -17,9 +18,11 @@ onAction('save-schedule', el => {
 });
 
 // --- schedules --------------------------------------------------------------
-// PetKit has one scheduling model and four shapes of it, and every one of them
-// counts MINUTES SINCE LOCAL MIDNIGHT with Sunday as weekday 1. See
-// events/codes.py, which is where those two facts are written down.
+// PetKit has one scheduling model and four shapes of it, and all but one count
+// MINUTES SINCE LOCAL MIDNIGHT with Sunday as weekday 1. The exception is a
+// feeder meal's `t`, which counts SECONDS since local midnight — the cloud's
+// `n_46560` fires at 12:56:00 (D4SH capture, 2026-08-12). See events/codes.py,
+// which is where those facts are written down.
 //
 // A range whose end is below its start crosses midnight and is correct; a
 // one-minute range is something the app itself produced. So nothing here
@@ -60,6 +63,12 @@ const clockToMin = s => {
     return null;
   return h * 60 + m;
 };
+// Feeder meals only: `t` is seconds since midnight on the wire.
+const secToClock = s => minToClock(Math.floor(Number(s) / 60));
+const clockToSec = s => {
+  const m = clockToMin(s);
+  return m === null ? null : m * 60;
+};
 
 function schedValue(id, t) {
   const k = schedKey(id, t.target);
@@ -81,10 +90,12 @@ function repaintSchedules(id) {
   const panel = devPanel(id);
   const card = panel && panel.querySelector('.sched-card');
   const d = DEV_DETAIL.get(id);
-  if (card && d) card.outerHTML = renderSchedules(d, scheduleTextEntities(d));
+  if (card && d) card.outerHTML = renderSchedules(d, scheduleEntities(d));
 }
 
-const scheduleTextEntities = d =>
+// Everything routed to this card: the raw-JSON `text` entities and now the
+// `time` ones too. `renderSchedules` splits them by component.
+const scheduleEntities = d =>
   (d.entities || []).filter(e => ENTITY_SECTION[e.component] === 'schedules');
 
 // One [from, to] row: either the whole day, or two clocks. `All day` is a real
@@ -180,7 +191,7 @@ function renderFeedEditor(id, t, value) {
               .map(
                 (meal, mi) => `<div class="sched-row">
         <span class="sched-vals">
-          <input type="time" value="${esc(minToClock(meal.t))}" data-change="sched-meal-time"${dat} data-path="${esc(gi)}" data-idx="${esc(mi)}">
+          <input type="time" value="${esc(secToClock(meal.t))}" data-change="sched-meal-time"${dat} data-path="${esc(gi)}" data-idx="${esc(mi)}">
           <label class="sw-inline"><span>${t.dual ? 'Hopper 1' : 'Portions'}</span>
             <input type="number" class="sched-portion" min="0" max="255" step="1" value="${esc(meal.a1 ?? 0)}" data-change="sched-meal-a1"${dat} data-path="${esc(gi)}" data-idx="${esc(mi)}"></label>
           ${
@@ -251,10 +262,16 @@ function renderPointsEditor(id, t, value) {
     .join('');
 }
 
-function renderSchedules(d, textEntities) {
+function renderSchedules(d, sectionEntities) {
   const targets = d.schedules || [];
-  const texts = textEntities || [];
-  if (!targets.length && !texts.length) return '';
+  const all = sectionEntities || [];
+  // Two different shapes share this card. A `time` entity is one moment; a
+  // schedule target is a list of ranges. They are the same question to the
+  // person reading it, and different enough underneath that the units are
+  // spelled out rather than left to be inferred from the controls.
+  const times = all.filter(e => e.component === 'time');
+  const texts = all.filter(e => e.component !== 'time');
+  if (!targets.length && !all.length) return '';
   const editors = targets
     .map(t => {
       const value = schedValue(d.id, t);
@@ -283,6 +300,12 @@ function renderSchedules(d, textEntities) {
   return `<div class="card sched-card"><h3>Schedules${help(
     'The device runs these on its own clock — this app answers when it asks. Times are local, and nothing is set for you: a schedule you have not filled in is empty, and the device is simply not restricted. A period that ends before it starts runs through midnight, which is normal and is how PetKit’s own app writes quiet hours.',
   )}</h3>
+    ${
+      times.length
+        ? `<div class="ctrls">${times.map(e => controlRow(d.id, e)).join('')}</div>
+    <p class="sub">Those two are a single time of day. The periods below are RANGES — a start and an end — which is why they look different.</p>`
+        : ''
+    }
     <div class="sched-grid">${editors}</div>
     ${
       texts.length
@@ -439,8 +462,8 @@ onAction('sched-drop-meal', el =>
 );
 onChange('sched-meal-time', el =>
   schedEdit(el.dataset.id, el.dataset.target, v => {
-    const m = clockToMin(el.value);
-    if (m !== null) feedGroup(v, el.dataset.path).it[Number(el.dataset.idx)].t = m;
+    const s = clockToSec(el.value);
+    if (s !== null) feedGroup(v, el.dataset.path).it[Number(el.dataset.idx)].t = s;
   }),
 );
 const mealAmount = (el, field) =>

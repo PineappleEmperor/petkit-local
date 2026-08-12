@@ -34,6 +34,7 @@ from petkit_local.http.handlers._common import (
 )
 from petkit_local.media.crypto import resolve_key_string as _get_aes_key
 from petkit_local.utils.capture import capture_record
+from petkit_local.web.api.sounds import sound_list_for_device
 
 
 async def handle_sync_time(request: web.Request) -> web.Response:
@@ -62,15 +63,14 @@ async def handle_ota_check(request: web.Request) -> web.Response:
 
 
 async def handle_attire_over(request: web.Request) -> web.Response:
-    """`dev_attire_over` — answer with the captured stock value.
+    """`dev_attire_over` — acknowledge attire completion.
 
     Returns:
-        ``{"result": [0]}``, an ARRAY (see the module docstring on shapes). What
-        the device asks here and what it does with the answer have NOT been
-        confirmed, so the literal is left exactly as captured rather than being
-        made configurable or reasoned about.
+        ``{"result": 1}`` — an INTEGER. The real cloud returns ``1`` for a
+        D4SH (capture 2026-08-11); the previous ``[0]`` was copied from an
+        older capture and was wrong.
     """
-    return web.json_response({"result": [0]})
+    return web.json_response({"result": 1})
 
 
 async def handle_oss_sts(request: web.Request) -> web.Response:
@@ -211,6 +211,8 @@ async def handle_event_report(request: web.Request) -> web.Response:
 
     if apply_state_snapshot(device, state):
         registry.mark_dirty()
+        if not device.state.get("ip") and request.remote:
+            device.state["ip"] = request.remote
 
     # Applied AFTER the state block, so a derived timestamp is not overwritten
     # by the report the same request carried. Shared with `mqtt/bridge.py`.
@@ -219,6 +221,8 @@ async def handle_event_report(request: web.Request) -> web.Response:
 
     hub = request.app.get("event_hub")
     if hub is not None:
+        if isinstance(state, dict) and state:
+            hub.set_state_report(petkit_id, state)
         hub.publish("event", petkit_id,
                     f"{row['event_type'] or 'event'} ({row['event_kind']})", detail=row)
 
@@ -234,11 +238,19 @@ async def handle_event_report(request: web.Request) -> web.Response:
     return web.json_response({"result": "success"})
 
 
-async def handle_empty_list(request: web.Request) -> web.Response:
-    """Answer ``{"result": []}`` — the generic "no entries" success.
+async def handle_sound_get(request: web.Request) -> web.Response:
+    """`dev_sound_get` — the device's uploaded custom sounds.
 
-    Routed for `dev_sound_get`: no custom sound packs are hosted here. An ARRAY
-    and not an object, because the firmware iterates the result (see the module
-    docstring on shapes).
+    Returns:
+        ``{"result": [...]}`` — one entry per uploaded sound, each carrying a
+        download URL pointing at our bucket. Empty when no sounds have been
+        uploaded. An ARRAY, because the firmware iterates the result.
     """
+    config = request.app["config"]
+    bucket_endpoint = config.get("bucket_endpoint", "")
+    device = request_device(request)
+    if device and bucket_endpoint:
+        sounds = sound_list_for_device(request, device.petkit_id, bucket_endpoint)
+        if sounds:
+            return web.json_response({"result": sounds})
     return web.json_response({"result": []})

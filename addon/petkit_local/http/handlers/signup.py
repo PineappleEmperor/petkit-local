@@ -11,6 +11,7 @@ iot_device_info); `handlers/_common.py` resolves but never creates, so the
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any
 
@@ -61,6 +62,36 @@ def _remember_where_it_thinks_it_is(request: web.Request, device: Any,
         registry.mark_dirty()
 
 
+#: Where a locally-minted id starts. PetKit's own ids are nine digits opening
+#: with `3` -- 300004258, 30020324, 30000369 across four families -- so ours
+#: open with `4`: same shape, no chance of landing on a real one.
+_LOCAL_ID_BASE = 400_000_000
+
+
+def _local_device_id(*candidates: str) -> int | None:
+    """Mint a stable id for a device that has never been given one.
+
+    A device gets its id from PetKit at first registration and repeats it
+    forever after. One that has never reached PetKit has none to repeat -- and
+    the "broken" units people buy second-hand are exactly that, which is how a
+    unit that works perfectly ends up unable to register with the thing built
+    to replace the cloud it cannot reach.
+
+    Derived from the MAC rather than allocated from a counter, because signup
+    is retried: an allocator would mint a new device on every attempt and fill
+    the registry with duplicates of one feeder. The same MAC therefore always
+    produces the same id, across restarts and across a lost `devices.json`.
+
+    Returns None when the device offered no stable identifier at all, which is
+    the only case left where there is genuinely nothing to key an entry on.
+    """
+    seed = next((c.strip().lower() for c in candidates if c and c.strip()), "")
+    if not seed:
+        return None
+    digest = hashlib.sha256(seed.encode()).digest()
+    return _LOCAL_ID_BASE + int.from_bytes(digest[:4], "big") % 100_000_000
+
+
 async def handle_signup(request: web.Request) -> web.Response:
     """Register the calling device, then hand it its identity back.
 
@@ -88,9 +119,22 @@ async def handle_signup(request: web.Request) -> web.Response:
     mac = device_field(request, "mac") or ""
     firmware = device_field(request, "firmware") or ""
 
+    minted = False
     if petkit_id is None:
+        # No id of its own: never registered with PetKit, or no longer able to
+        # reach it. Being the local cloud means being the thing that hands one
+        # out, not the second party to refuse.
+        petkit_id = _local_device_id(mac, device_field(request, "bt_mac") or "")
+        minted = petkit_id is not None
+    if petkit_id is None:
+        # Nothing stable to key an entry on -- not even a MAC. A 400 here is
+        # still a device that will retry forever, but there is no id to invent
+        # that would survive the next request.
+        log.warning("Signup from a %s with no id and no MAC; cannot register it",
+                    device_type)
         return web.json_response({"error": "missing device id"}, status=400)
 
+    known = registry.get(petkit_id) is not None
     device = registry.get_or_create(
         petkit_id=petkit_id,
         device_type=device_type,
@@ -101,6 +145,15 @@ async def handle_signup(request: web.Request) -> web.Response:
     # An ESP32 feeder is the only source of its own BLE address, and it offers
     # it exactly once, here. `devices/payloads.py` already reads `bt_mac` out of
     # `config` when answering `dev_device_info`; nothing had ever written it.
+    if minted and not known:
+        # Said once, loudly: this id is OURS, not PetKit's, and anyone
+        # comparing it against the app or a capture needs to know that.
+        device.config["locally_assigned_id"] = True
+        registry.mark_dirty()
+        log.info("Registered a %s that had no id of its own: minted %d from its "
+                 "MAC (%s). The same device will always get this id back.",
+                 device_type, petkit_id, mac or "no mac")
+
     bt_mac = device_field(request, "bt_mac")
     if bt_mac and not device.config.get("bt_mac"):
         device.config["bt_mac"] = bt_mac

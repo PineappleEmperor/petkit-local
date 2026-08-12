@@ -261,7 +261,11 @@ onToggle('dev-panel', el => {
     if (body) body.innerHTML = '';
   }
 });
-onToggle('dev-sec', el => setSecOpen(Number(el.dataset.id), el.dataset.sec, el.open));
+onToggle('dev-sec', el => {
+  setSecOpen(Number(el.dataset.id), el.dataset.sec, el.open);
+  if (el.dataset.sec === 'sounds' && el.open) loadSounds(el.dataset.id);
+  if (el.dataset.sec === 'deferred' && el.open) loadDeferred(el.dataset.id);
+});
 
 // One request per device: the sidecars the detail view needs are folded into
 // `api_device_detail` server-side. They used to be three extra round trips,
@@ -378,6 +382,142 @@ onAction('ble-cloud-import', async el => {
   loadDevices();
 });
 
+onAction('delete-device', async el => {
+  if (
+    !confirm(
+      `Delete ${el.dataset.name}?\n\nThis removes the device from the registry and all its Home Assistant entities. Events and media are kept.`,
+    )
+  )
+    return;
+  const r = await api('devices/' + encodeURIComponent(el.dataset.id), { method: 'DELETE' });
+  toast(r.ok ? 'Device removed' : 'Error: ' + (r.error || 'failed'));
+  loadDevices();
+});
+
+// --- deferred feeds ---
+
+async function loadDeferred(deviceId) {
+  const el = document.getElementById('deferred-' + deviceId);
+  if (!el) return;
+  const r = await api('devices/' + encodeURIComponent(deviceId) + '/deferred-feed');
+  const items = r.deferred || [];
+  if (!items.length) {
+    el.innerHTML = '<p class="sub">No scheduled feeds.</p>';
+    return;
+  }
+  el.innerHTML = items
+    .map(d => {
+      const dt = new Date(d.fire_at * 1000);
+      const when =
+        dt.toLocaleDateString() +
+        ' ' +
+        dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return `<div class="row" style="align-items:center;gap:8px;margin:4px 0">
+      <span style="flex:1">${esc(when)} — H1: ${d.a1}, H2: ${d.a2}</span>
+      <button class="act mini-ex danger" data-action="delete-deferred" data-id="${esc(String(deviceId))}" data-fid="${esc(d.id)}">Delete</button>
+    </div>`;
+    })
+    .join('');
+}
+
+onAction('add-deferred', async el => {
+  const form = document.getElementById('deferred-form-' + el.dataset.id);
+  if (!form) return;
+  const date = form.querySelector('[data-field="date"]').value;
+  const time = form.querySelector('[data-field="time"]').value;
+  const a1 = parseInt(form.querySelector('[data-field="a1"]').value) || 0;
+  const a2 = parseInt(form.querySelector('[data-field="a2"]').value) || 0;
+  if (!date || !time) {
+    toast('Pick a date and time');
+    return;
+  }
+  const r = await api('devices/' + encodeURIComponent(el.dataset.id) + '/deferred-feed', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ date, time, a1, a2 }),
+  });
+  toast(r.ok ? 'Feed scheduled' : 'Error: ' + (r.error || 'failed'));
+  loadDeferred(el.dataset.id);
+});
+
+onAction('delete-deferred', async el => {
+  const r = await api(
+    'devices/' +
+      encodeURIComponent(el.dataset.id) +
+      '/deferred-feed/' +
+      encodeURIComponent(el.dataset.fid),
+    { method: 'DELETE' },
+  );
+  toast(r.ok ? 'Removed' : 'Error: ' + (r.error || 'failed'));
+  loadDeferred(el.dataset.id);
+});
+
+// --- custom sounds ---
+
+async function loadSounds(deviceId) {
+  const el = document.getElementById('sounds-' + deviceId);
+  if (!el) return;
+  const r = await api('devices/' + encodeURIComponent(deviceId) + '/sounds');
+  const sounds = r.sounds || [];
+  if (!sounds.length) {
+    el.innerHTML = '<p class="sub">No custom sounds uploaded.</p>';
+    return;
+  }
+  el.innerHTML = sounds
+    .map(
+      s =>
+        `<div class="row" style="align-items:center;gap:8px;margin:4px 0">
+      <span style="flex:1">${esc(s.name || 'Sound ' + s.id)} <span class="sub">(${(s.size / 1024).toFixed(0)} KB)</span></span>
+      <button class="act mini-ex" data-action="play-sound" data-id="${esc(String(deviceId))}" data-sid="${s.id}">Play</button>
+      <button class="act mini-ex" data-action="select-sound" data-id="${esc(String(deviceId))}" data-sid="${s.id}">Select</button>
+      <button class="act mini-ex danger" data-action="delete-sound" data-id="${esc(String(deviceId))}" data-sid="${s.id}">Delete</button>
+    </div>`,
+    )
+    .join('');
+}
+
+document.addEventListener('change', async e => {
+  const el = e.target;
+  if (!el.dataset || el.dataset.action !== 'upload-sound') return;
+  const file = el.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  const r = await api('devices/' + encodeURIComponent(el.dataset.id) + '/sounds', {
+    method: 'POST',
+    body: fd,
+  });
+  toast(r.ok ? 'Uploaded' : 'Error: ' + (r.error || 'failed'));
+  el.value = '';
+  loadSounds(el.dataset.id);
+});
+
+onAction('play-sound', async el => {
+  const r = await api(
+    'devices/' + encodeURIComponent(el.dataset.id) + '/sounds/' + el.dataset.sid + '/play',
+    { method: 'POST' },
+  );
+  toast(r.ok ? 'Playing' : 'Error: ' + (r.error || 'failed'));
+});
+
+onAction('select-sound', async el => {
+  const r = await api(
+    'devices/' + encodeURIComponent(el.dataset.id) + '/sounds/' + el.dataset.sid + '/select',
+    { method: 'POST' },
+  );
+  toast(r.ok ? 'Selected' : 'Error: ' + (r.error || 'failed'));
+});
+
+onAction('delete-sound', async el => {
+  if (!confirm('Delete this sound?')) return;
+  const r = await api(
+    'devices/' + encodeURIComponent(el.dataset.id) + '/sounds/' + el.dataset.sid,
+    { method: 'DELETE' },
+  );
+  toast(r.ok ? 'Deleted' : 'Error: ' + (r.error || 'failed'));
+  loadSounds(el.dataset.id);
+});
+
 onAction('ble-unpair', async el => {
   if (
     !confirm(
@@ -389,6 +529,26 @@ onAction('ble-unpair', async el => {
   toast(r.ok ? 'Unpaired' : 'Error: ' + (r.error || 'failed'));
   loadDevices();
 });
+
+// An empty box means "no override", which is a real value here and not a
+// missing one — it hands the device back to whatever it reported for itself.
+onAction('set-timezone', el => {
+  const box = el.closest('.ctrl').querySelector('[data-input="tz-offset"]');
+  const raw = (box.value || '').trim();
+  setTimezone(Number(el.dataset.id), raw === '' ? null : Number(raw));
+});
+async function setTimezone(id, offset) {
+  const r = await api('devices/' + id + '/timezone', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ timezone: offset }),
+  });
+  if (!r.ok) return toast('Error: ' + (r.error || 'failed'));
+  // "Sent" is not "visible": the device applies it at once but only echoes it
+  // back on its next property post, which arrives on its own schedule.
+  toast(r.delivered === 'mqtt' ? 'Sent to the device' : 'Saved — applies on its next check-in');
+  loadDevices();
+}
 
 onChange('set-log-upload', el => setLogUpload(Number(el.dataset.id), el.checked));
 async function setLogUpload(id, on) {
@@ -411,10 +571,14 @@ const ENTITY_SECTION = {
   switch: 'controls',
   number: 'controls',
   select: 'controls',
-  // A single time of day (the W7H's drain and flush hours). It belongs with the
-  // other settings, not under Schedules: that card is the raw JSON a device
-  // fetches on its own clock, and this is one field.
-  time: 'controls',
+  // A single time of day — the W7H's drain and flush hours. It sits with the
+  // Schedules, because from the owner's side "when does it flush" and "when is
+  // it quiet" are one question, and splitting them across two cards described
+  // OUR storage rather than their fountain. The split it used to follow is
+  // real, but it is a Home Assistant limitation: HA has no entity for a list
+  // of ranges, so only the single-point fields can be entities at all. The
+  // panel is under no such constraint.
+  time: 'schedules',
   button: 'actions',
   text: 'schedules',
   // No card of its own. An event entity is momentary — it fires and keeps no
@@ -534,6 +698,28 @@ function renderPanelBody(d) {
   }
 
   ${
+    d.timezoneInfo
+      ? `<div class="card"><h3>Timezone${help(
+          'The device has no clock of its own: it is given an offset once, over Bluetooth, and burns it into its video watermarks. Setting one here pushes it to a device that is already paired, so a box provisioned before this field existed can be corrected without re-provisioning. The device reports back to one decimal, so 5.75 reads as 5.8.',
+        )}</h3>
+    <p class="sub">Effective <b>UTC${d.timezoneInfo.effective >= 0 ? '+' : ''}${esc(d.timezoneInfo.effective)}</b>, from ${
+      {
+        override: 'this override',
+        device: 'what the device reported',
+        server: "this server's clock",
+      }[d.timezoneInfo.source] || d.timezoneInfo.source
+    }${d.timezoneInfo.locale ? ` · ${esc(d.timezoneInfo.locale)}` : ''}${
+      d.timezoneInfo.reported != null ? ` · device said ${esc(d.timezoneInfo.reported)}` : ''
+    }</p>
+    <div class="ctrls"><label class="ctrl"><span>Offset from UTC</span>
+      <span class="cn"><input type="number" min="-12" max="14" step="0.25" placeholder="auto"
+        value="${d.timezoneInfo.override == null ? '' : esc(d.timezoneInfo.override)}"
+        data-input="tz-offset" data-id="${esc(d.id)}">
+      <button class="mini" data-action="set-timezone" data-id="${esc(d.id)}">Set</button></span></label></div></div>`
+      : ''
+  }
+
+  ${
     d.logInfo
       ? `<div class="card"><h3>Debug log collection${help(
           'Lets the device upload its own devRun.log here instead of to PetKit. Needs the cacert patcher, since the upload is HTTPS to our self-signed bucket. The device decides when to send one — a reboot is the usual trigger.',
@@ -647,12 +833,46 @@ function renderPanelBody(d) {
       : ''
   }
 
+  ${
+    d.is_feeder
+      ? `<div class="card"><details class="adv" data-toggle="dev-sec" data-id="${esc(d.id)}" data-sec="deferred" ${secOpen(d.id, 'deferred', false) ? 'open' : ''}><summary>Schedule a Feed</summary>
+    <div id="deferred-${esc(d.id)}"><p class="sub">Loading...</p></div>
+    <div style="margin-top:10px" class="row" id="deferred-form-${esc(d.id)}">
+      <input type="date" data-field="date" style="flex:1">
+      <input type="time" data-field="time" style="flex:1">
+      <input type="number" data-field="a1" min="0" max="20" value="1" style="width:60px" placeholder="H1">
+      <input type="number" data-field="a2" min="0" max="20" value="0" style="width:60px" placeholder="H2">
+      <button class="act" data-action="add-deferred" data-id="${esc(d.id)}">Add</button>
+    </div>
+    <p class="sub" style="margin-top:4px">Date, time, portions hopper 1, portions hopper 2.</p>
+  </details></div>`
+      : ''
+  }
+
+  ${
+    d.is_camera && d.is_feeder
+      ? `<div class="card"><details class="adv" data-toggle="dev-sec" data-id="${esc(d.id)}" data-sec="sounds" ${secOpen(d.id, 'sounds', false) ? 'open' : ''}><summary>Custom Sounds</summary>
+    <div id="sounds-${esc(d.id)}"><p class="sub">Loading...</p></div>
+    <div style="margin-top:10px">
+      <label class="act" style="cursor:pointer">Upload sound
+        <input type="file" accept="audio/*" style="display:none" data-action="upload-sound" data-id="${esc(d.id)}">
+      </label>
+    </div>
+  </details></div>`
+      : ''
+  }
+
   <div class="card"><details class="adv" data-toggle="dev-sec" data-id="${esc(d.id)}" data-sec="diag" ${secOpen(d.id, 'diag', false) ? 'open' : ''}><summary>Diagnostics &amp; raw payloads</summary>
     <div class="row" style="margin-top:8px">
       <div class="col"><b>Last HTTP state_report</b><pre>${esc(JSON.stringify(d.diag.last_state_report || { note: 'none yet' }, null, 2))}</pre></div>
       <div class="col"><b>Last MQTT property.post</b><pre>${esc(JSON.stringify(d.diag.last_property || { note: 'none yet' }, null, 2))}</pre></div>
     </div>
     <b>MQTT connection</b><pre>${esc(JSON.stringify(d.diag.last_connect || { note: 'no MQTT connect seen — device is on HTTP heartbeat' }, null, 2))}</pre>
+  </details></div>
+
+  <div class="card"><details class="adv" data-toggle="dev-sec" data-id="${esc(d.id)}" data-sec="danger" ${secOpen(d.id, 'danger', false) ? 'open' : ''}><summary>Remove device</summary>
+    <p class="sub">Permanently delete this device from the registry and remove all its Home Assistant entities. Events and media are kept.</p>
+    <button class="act danger" data-action="delete-device" data-id="${esc(d.id)}" data-name="${esc((d.type || '').toUpperCase() + ' ' + (d.serial_number || d.id))}">Delete device</button>
   </details></div>
 
   <div class="card"><details class="adv" data-toggle="dev-sec" data-id="${esc(d.id)}" data-sec="raw" ${secOpen(d.id, 'raw', false) ? 'open' : ''}><summary>Advanced: send raw command</summary>

@@ -45,9 +45,31 @@ MULTI_RANGE_DEFAULTS: dict[str, Any] = {
     "lightMultiRange": _ALL_DAY,
     "toneMultiRange": _ALL_DAY,
     "cameraMultiRange": _ALL_DAY_WEEKLY,
-    "cameraMultiNew": _ALL_DAY,
+    # Format B, like `cameraMultiRange` and for the same reason: this is a
+    # gating field and `pk_parse_cameraMultiNew_func` reads `rpt`/`time` off
+    # each element as an object. A bare `[[start, end]]` makes every lookup
+    # null, so `cameraRangeTable` stays empty and the D4SH logs "camera not
+    # enable" while reporting `camera: 1`.
+    #
+    # It had the plain shape because the feeder branch was written with one
+    # all-day literal for all four of its fields, while the litter branch got
+    # Format B from a capture. Our own T5 is the proof the object form is what
+    # a gating field wants: it is served `cameraMultiRange` this way and
+    # records.
+    "cameraMultiNew": _ALL_DAY_WEEKLY,
     "detectMultiRange": _ALL_DAY,
     "distrubMultiRange": [],
+    # A W7H's two quiet windows: `aw` is addWater (the firmware keeps
+    # `awDisturb*` in the same vocabulary as `addWaterMode`, `addWaterSwitch`
+    # and `addWaterTimeAllow`), `wl` is unresolved — the whole image holds
+    # three `wl` tokens and none of them says what it stands for, so it stays
+    # unnamed rather than guessed at.
+    #
+    # Empty for the same reason `distrubMultiRange` is: these SILENCE a job,
+    # and an empty window silences nothing. Both are gated by their own
+    # `awDisturbMode`/`wlDisturbMode` switch as well.
+    "awDisturbMultiRange": [],
+    "wlDisturbMultiRange": [],
 }
 
 
@@ -109,7 +131,9 @@ def default_settings(device: Device) -> dict[str, Any]:
     if device.is_feeder:
         base = {
             "manualLock": 0, "lightMode": 0, "foodWarn": 0,
-            "factor": 10,
+            "foodWarnRange": [480, 1200],
+            "surplusControl": 0, "surplusStandard": 2,
+            "numLimit": 5,
         }
         if device.is_camera:
             base.update({
@@ -117,8 +141,22 @@ def default_settings(device: Device) -> dict[str, Any]:
                 "timeDisplay": 1, "moveDetection": 1, "moveSensitivity": 1,
                 "petDetection": 1, "petSensitivity": 3,
                 "eatDetection": 1, "eatSensitivity": 3,
-                "soundEnable": 0, "systemSoundEnable": 0,
-                "volume": 4, "smartFrame": 1,
+                "soundEnable": 0, "systemSoundEnable": 1,
+                "volume": 7, "smartFrame": 1,
+                "toneMode": 0, "disturbMode": 0,
+                "feedSound": 0, "selectedSound": -1,
+                "detectInterval": 0,
+                "logSwitch": 1,
+                # The three enables a camera feeder needs before it will stage
+                # and upload a clip. `feedPicture` is the direct gate,
+                # `eatVideo` the eat-clip enable, `upload` the master switch —
+                # the camera-litter block above has carried `upload: 1` all
+                # along, and this branch had none of the three. The device does
+                # not report them, and `to_device_info` serves seeded settings
+                # back, so an absent key reads to `ctrl` as a zero: it logs
+                # "feed not upload pic and video ..." and every event says
+                # `media: 0`.
+                "feedPicture": 1, "eatVideo": 1, "upload": 1,
             })
         return base
     if device.is_water_fountain:
@@ -177,13 +215,32 @@ def multi_config_ranges(device: Device) -> dict[str, Any]:
         if device.is_camera:
             keys += ("cameraMultiRange", "toneMultiRange")
     elif device.is_feeder and device.is_camera:
+        # `cameraMultiNew`, NOT `cameraMultiRange`: the D4SH parser is
+        # `pk_parse_cameraMultiNew_func`, which keys on `cameraMultiNew` and
+        # saves it into its internal `cameraMultiRange`. Serving the internal
+        # name (as PR #18 briefly did) reaches no parser, so the recording
+        # window stays empty, the camera never arms (`cameraStatus` 0), and
+        # every feed reports `media: 0` — confirmed live on a D4SH: pushing
+        # `cameraMultiNew` flips `cameraStatus` to 1 and recording resumes.
         keys = ("detectMultiRange", "cameraMultiNew",
                 "toneMultiRange", "lightMultiRange")
-    # A fountain has these too — the W7H's own `ctrl` reads
-    # `awDisturbMultiRange`, `wlDisturbMultiRange` and their siblings — but
-    # the branch that serves them is PR #18's, not this change's. Until it
-    # lands, a W7H's ranges are storable and sendable and simply not part of
-    # this reply, which is what it has always received.
+    elif device.is_water_fountain:
+        # Nine of these exist in the W7-262863 image; SEVEN are sent.
+        #
+        # Five are confirmed by watching PetKit's own cloud write them to a
+        # W7H (capture 2026-08-11): `lightMultiRange`, `toneMultiRange`,
+        # `awDisturbMultiRange`, `wlDisturbMultiRange`, `cameraMultiRange`.
+        # `distrubMultiRange` and `detectMultiRange` are in the firmware's
+        # string table and default to something that restricts nothing, so
+        # sending them takes no decision away from the owner.
+        #
+        # `lightAssistMultiRange` and `wifiLightAssistMultiRange` are held
+        # back deliberately. They are real fields, but no capture shows a
+        # value, and this reply is re-sent on every poll — an invented window
+        # would overwrite whatever the owner set in PetKit's app, on repeat.
+        keys = ("lightMultiRange", "toneMultiRange", "distrubMultiRange",
+                "detectMultiRange", "cameraMultiRange",
+                "awDisturbMultiRange", "wlDisturbMultiRange")
     return {key: pick(key) for key in keys}
 
 
@@ -217,12 +274,14 @@ def schedule_targets(device: Device) -> list[dict[str, Any]]:
         "cameraMultiRange": "Shooting Period",
         "cameraMultiNew": "Shooting Period",
         "detectMultiRange": "Detection Period",
+        # `aw` is addWater, from the firmware's own vocabulary. `wl` is NOT
+        # resolved -- the image holds three `wl` tokens and none of them says
+        # what it abbreviates -- so the label stays the wire name rather than
+        # inventing a friendly one that might be wrong.
+        "awDisturbMultiRange": "Water Top-Up Undisturbed Period",
+        "wlDisturbMultiRange": "wlDisturb Undisturbed Period",
     }
-    # `cameraMultiNew` is listed as plain ranges because that is the shape
-    # this add-on currently serves for it. PR #18 has evidence the firmware
-    # reads it as `weekly` objects instead; when that lands, this line moves
-    # with it rather than the two disagreeing.
-    weekly = {"cameraMultiRange"}
+    weekly = {"cameraMultiRange", "cameraMultiNew"}
 
     targets = [
         {"target": key, "name": labels.get(key, key),

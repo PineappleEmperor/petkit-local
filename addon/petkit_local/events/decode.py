@@ -55,13 +55,28 @@ TRIGGER_SHORT: dict[int, str] = {
     3: "Manual",
 }
 
+#: How a CLEANING cycle ended, and only a cleaning cycle -- see
+#: `_result_field` for why this table must not be read as a global enum.
+#:
+#: `4` is the bin stopping the cycle: it appears in a capture of four device
+#: families ONLY alongside `err: "full"` (T5 twice, T6 once) and in no other
+#: context. It used to read "canceled (kitten mode)", which was never a wire
+#: meaning at all -- the slot was borrowed as a lookup constant for a DIFFERENT
+#: case, `result == 3` with a `kitten` flag, and then a real `4` arrived from a
+#: box with a full bin and inherited the wrong label. Kitten mode now has
+#: `RESULT_KITTEN` and this table only describes values devices actually send.
 RESULT: dict[int, str] = {
     0: "completed",
     1: "terminated",
     2: "failed",
     3: "canceled",
-    4: "canceled (kitten mode)",
+    4: "stopped (bin full)",
 }
+
+#: Not a wire value: the label for `result == 3` when `content.kitten` is set.
+#: Kept out of `RESULT` so a real `3` still reads "canceled" and a real `4`
+#: cannot pick this up by accident.
+RESULT_KITTEN = "canceled (kitten mode)"
 
 #: Hall-sensor and bin faults. `hallB` is ours -- 16 captures, present in no
 #: reference table -- and is graded a step lower than its documented siblings.
@@ -306,8 +321,21 @@ def _err_field(value: Any) -> tuple[str, str]:
 def _result_field(value: Any) -> tuple[str, str]:
     """`result`, keeping unmapped values visible instead of blank.
 
-    Values 5 and 7 occur in the captures and are outside the documented 0..4,
-    so they must not silently read as success.
+    `RESULT` describes a CLEANING cycle. `result` is NOT one enum across the
+    protocol — the same field carries a different vocabulary per event, exactly
+    as `event_type` does per device category. Observed in one capture of four
+    families::
+
+        clean_over      0, 4          ble_relay_over   0, 1, 2, 6
+        feed_over       0, 7, 10      add_water_over   0, 5, 18
+        reset_over      2 (T6), 5 (T5)
+
+    So `ble_relay_over result=1` is not "terminated" and `2` is not "failed" —
+    those labels come from the litter table and nothing supports them here.
+    Values outside `RESULT` render as `result {n}` and are graded UNVERIFIED
+    rather than being dressed up in a cleaning cycle's vocabulary. Splitting
+    this per event needs a source for each family's meanings; until then the
+    raw number is the honest answer.
     """
     return _enum(RESULT, value, "result {n}")
 
@@ -373,19 +401,27 @@ _FIELDS: dict[str, _FieldSpec] = {
         "identified, which is 31 of 33 captured 'appeared' episodes."),
     "area": _FieldSpec(
         "Detection area", _raw,
-        "The detected animal's bounding box in detector pixels. Gated by "
-        "dev_discern_config's `area` threshold (6000), which the firmware "
-        "compares as a floor -- nothing below it was reported in 58 captured "
-        "detections. Nothing exceeded 921600 either, so the detector appears "
-        "to run on a 1280x720 frame."),
+        "On a LITTER BOX the detected animal's bounding box in detector "
+        "pixels: 2444..810810 across 429 detections, never above 921600, so "
+        "the detector appears to run on a 1280x720 frame. "
+        "dev_discern_config's `area` (6000) is NOT a hard floor -- a T5 "
+        "reported 5605 and 2444 -- so it gates something earlier than what "
+        "arrives here. "
+        "On a W7H it is a different quantity entirely: 0 or 100 and nothing "
+        "else, in all 442 fountain detections, which is not a pixel count. "
+        "Whatever it measures there has no source, so it is shown raw."),
     "score_info": _FieldSpec(
         "Recognition", _score_info,
         "The pet id we served in dev_discern_pic, plus a face-match score. NOT "
         "comparable with dev_discern_config's `score`, which is the "
         "body-detection floor on a different scale."),
     "score": _FieldSpec(
-        "Score", _raw, "Face-match similarity, observed 9..1846. Not the same "
-                       "quantity as dev_discern_config's `score` threshold."),
+        "Score", _raw, "Face-match similarity, observed 9..1846 on a litter "
+                       "box. Not the same quantity as dev_discern_config's "
+                       "`score` threshold. A W7H's `tracker_info[].pet_score` "
+                       "runs to 48609 over 577 entries -- whether that is the "
+                       "same scale is not established, so the two are not "
+                       "compared."),
     # -- times
     "time_in": _FieldSpec("Entered", _epoch),
     "time_out": _FieldSpec("Left", _epoch),
@@ -512,6 +548,17 @@ def decode_content(event_type: str | None,
     return fields
 
 
+#: Keys whose value is a UNIX timestamp, derived from the field table rather
+#: than listed again so the two cannot drift.
+#:
+#: The panel needs to know which rows these are because it renders them itself:
+#: `_epoch` formats in the SERVER's timezone, and the Timeline card headers
+#: format in the BROWSER's, so a container in UTC and a browser in CEST showed
+#: the same instant twice, two hours apart, in adjacent rows of one table.
+#: One page, one timezone — the reader's.
+EPOCH_FIELDS = frozenset(k for k, s in _FIELDS.items() if s.render is _epoch)
+
+
 def summary_bits(event_type: str | None,
                  content: dict[str, Any] | None) -> list[str]:
     """Short facts worth putting on the Timeline card itself.
@@ -595,13 +642,14 @@ def event_label(event_type: str | None,
         trigger = TRIGGER_SHORT.get(
             to_int((content or {}).get("start_reason"), None))
         if noun != code.done_word:
-            # A directional event already says what happened ("light on"), so
-            # appending "completed" would only pad it.
             label = f"{trigger} {noun}" if trigger else noun
         else:
-            outcome, _ = _result_field(result)
-            if result == 3 and (content or {}).get("kitten"):
-                outcome = RESULT[4]
+            if code.kind == codes.KIND_FEEDING:
+                outcome, _ = _enum(_FEED_RESULT, result, "result {n}")
+            else:
+                outcome, _ = _result_field(result)
+                if result == 3 and (content or {}).get("kitten"):
+                    outcome = RESULT_KITTEN
             label = f"{trigger} {noun} {outcome}" if trigger \
                 else f"{noun} {outcome}"
     elif code.mode_from:

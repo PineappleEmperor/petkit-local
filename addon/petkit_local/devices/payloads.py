@@ -23,6 +23,14 @@ from typing import TYPE_CHECKING, Any
 
 from petkit_local.devices.base import encode_multi_range, split_bucket_authority
 from petkit_local.devices.defaults import default_settings, multi_config_ranges
+
+# Cloud deviceType per codename, confirmed from STS captures. The cloud
+# returns this in every capability[] entry. Only models with a capture
+# are listed; everything else defaults to 21 (T5).
+_DEVICE_TYPE_IDS: dict[str, int] = {
+    "t5": 21,
+    "d4sh": 25,
+}
 from petkit_local.devices.state_tables import CONSUMABLE_RECORD_KEY, SPRAY_TOTAL_DAYS
 from petkit_local.utils.coerce import to_float
 from petkit_local.utils.const import DEVICE_LOG_KEY_PREFIX
@@ -148,18 +156,27 @@ def to_serverinfo(device: Device, api_url: str) -> dict[str, Any]:
 def to_device_info(device: Device, ble_registry: BLERegistry | None = None) -> dict[str, Any]:
     """`dev_device_info` — the device's own full configuration, as it sees it.
 
-    Camera litters additionally get the `capacity[]` / `cloudProduct` block
-    that stands in for a cloud subscription, and, when `ble_registry` is
-    given, the embedded K3 purifier block (`withK3`, `k3Device`,
+    Every CAMERA gets the `capacity[]` / `cloudProduct` block that stands in
+    for a cloud subscription — a feeder as much as a litter box, because the
+    firmware gates cloud storage on it either way. Camera litters additionally
+    get the spray/deodorant tip fields, and, when `ble_registry` is given,
+    litters get the embedded K3 purifier block (`withK3`, `k3Device`,
     `settings.k3Config`) for whichever K3 is linked to this device.
 
-    NOTE, and unlike its siblings, this method is NOT pure: the `settings`
-    block in the result is the device's own `config["settings"]` dict rather
-    than a copy, so writing `k3Config` into it also writes it into the
-    stored config that gets persisted, where it outlives the K3 being
-    unlinked (nothing removes the key again).
+    The `settings` block is the seeded defaults MERGED UNDER whatever has been
+    stored, not one or the other. A settings write records only the field it
+    changed (`ha/commands.py` sets a single key), so serving the stored dict
+    alone shrank this block from every default to the one key somebody last
+    touched — and the device reads it as its entire configuration. The symptom
+    is loudest on a fountain, which reports no settings of its own and so has
+    nothing to refill the block with.
+
+    NOTE, and unlike its siblings, this method is NOT pure: `k3Config` is
+    written into the stored config as well as the answer, so it outlives the
+    K3 being unlinked (nothing removes the key again).
     """
-    settings = device.config.get("settings", {})
+    stored = device.config.get("settings", {})
+    settings = {**default_settings(device), **stored}
     result = {
         "id": device.petkit_id,
         "mac": device.mac,
@@ -170,7 +187,7 @@ def to_device_info(device: Device, ble_registry: BLERegistry | None = None) -> d
         "shareOpen": 0,
         "modelCode": 2,
         "btMac": device.config.get("bt_mac", ""),
-        "settings": settings if settings else default_settings(device),
+        "settings": settings,
         "multiConfig": True,
         "petInTipLimit": 15,
         "p2pType": 2,
@@ -178,23 +195,20 @@ def to_device_info(device: Device, ble_registry: BLERegistry | None = None) -> d
         "hertz": 50,
     }
 
-    if device.is_litter and device.is_camera:
+    if device.is_camera:
         now = int(time.time())
         far = 4102444800
-        result["sprayDays"] = SPRAY_TOTAL_DAYS
-        # Falls back to the stamp we recorded, because `state` is empty for
-        # the first moments after a restart and the firmware has a setter
-        # for this field (`set sprayResetTime (%d)` in `ctrl`). Echoing a
-        # zero there would push the N60 countdown's origin back to now on
-        # the box itself, silently costing the owner the rest of a
-        # cartridge's warning. PetKit's own reply carries the true value.
-        recorded = (device.config.get(CONSUMABLE_RECORD_KEY) or {}).get("n60")
-        result["sprayResetTime"] = (to_float(device.state.get("sprayResetTime"), 0)
-                                    or to_float(recorded, 0))
-        result["tooManyPets"] = 0
-        result["frequencyPetTip"] = 0
-        result["deodorantTip"] = 0
-        result["purificationTip"] = 0
+        # The standing cloud "subscription", and every camera needs it, not
+        # just a litter box. `ctrl` parses this into `pkg_service[].workTime`
+        # / `.indate` and gates cloud storage on the window still being open,
+        # so a camera FEEDER without it records the clip and never stages or
+        # uploads it -- the device logs "feed not upload pic and video ..."
+        # and every event reports `media: 0`. Two people found that
+        # independently, on a D4H and on a D4SH.
+        #
+        # `indate` is the same far-future stamp `to_oss_sts` uses for
+        # `cycleExpiration`, not a real billing window.
+        #
         # Mirrors to_oss_sts's capability[] set — a disabled capability
         # must disappear from BOTH so the device doesn't see conflicting
         # answers about what it's allowed to upload.
@@ -211,6 +225,22 @@ def to_device_info(device: Device, ble_registry: BLERegistry | None = None) -> d
             "subscribe": 0,
         }
 
+    if device.is_litter and device.is_camera:
+        result["sprayDays"] = SPRAY_TOTAL_DAYS
+        # Falls back to the stamp we recorded, because `state` is empty for
+        # the first moments after a restart and the firmware has a setter
+        # for this field (`set sprayResetTime (%d)` in `ctrl`). Echoing a
+        # zero there would push the N60 countdown's origin back to now on
+        # the box itself, silently costing the owner the rest of a
+        # cartridge's warning. PetKit's own reply carries the true value.
+        recorded = (device.config.get(CONSUMABLE_RECORD_KEY) or {}).get("n60")
+        result["sprayResetTime"] = (to_float(device.state.get("sprayResetTime"), 0)
+                                    or to_float(recorded, 0))
+        result["tooManyPets"] = 0
+        result["frequencyPetTip"] = 0
+        result["deodorantTip"] = 0
+        result["purificationTip"] = 0
+
     if ble_registry and device.is_litter:
         k3 = ble_registry.get_linked_k3(device.petkit_id)
         if k3:
@@ -222,7 +252,13 @@ def to_device_info(device: Device, ble_registry: BLERegistry | None = None) -> d
                 "sn": k3.serial_number,
                 "secret": k3.secret,
             }
-            result["settings"]["k3Config"] = {"config": k3.config}
+            # Written to the STORED settings as well as to the answer. This
+            # used to happen implicitly, by the answer BEING the stored dict;
+            # the merge above ends that identity, so the persistence it relied
+            # on is now stated instead of inherited.
+            k3_config = {"config": k3.config}
+            device.config.setdefault("settings", {})["k3Config"] = k3_config
+            result["settings"]["k3Config"] = k3_config
         else:
             result["withK3"] = 0
 
@@ -234,8 +270,17 @@ def to_multi_config(device: Device) -> dict[str, Any]:
 
     Every value in the result is a JSON-encoded STRING, not a nested object
     (verified against the real PetKit cloud), and each such string wraps its
-    own key again. `cameraMultiRange` is an array of schedule objects
-    `[{enable, rpt, time}]` rather than a bare range pair.
+    own key again.
+
+    A `*MultiRange` comes in TWO shapes and which one a field wants is per
+    field, not per model: a flat `[[start, end], ...]`, or an array of schedule
+    objects `[{enable, rpt, time}]`. The camera-GATING fields —
+    `cameraMultiRange` on a litter box and a fountain, `cameraMultiNew` on a
+    camera feeder — take the object form; feeding one a bare pair makes every
+    `rpt`/`time` lookup null and leaves the schedule table empty, which reads
+    to the device as "no window" and silently disables recording. The mirror
+    mistake fails just as quietly: a Format-A field given objects fails its
+    `cJSON_IsArray` check on every element.
 
     The `distrubMultiRange` misspelling is intentional: it is what the
     firmware sends and expects, so correcting it here would silently drop
@@ -379,7 +424,7 @@ def to_oss_sts(device: Device, bucket_endpoint: str = "",
             continue  # toggled off: the device stops uploading this type at the source
         capability.append({
             "deviceId": device.petkit_id,
-            "deviceType": 21,
+            "deviceType": _DEVICE_TYPE_IDS.get(device.device_type.lower(), 21),
             "cycleType": ct,
             "cycle": 0,
             "cycleExpiration": far_future,

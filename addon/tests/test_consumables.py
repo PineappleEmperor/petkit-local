@@ -151,3 +151,133 @@ def test_the_countdowns_are_ready_before_the_device_says_anything():
 
     doc = _state_doc(restarted)
     assert doc["state"]["deodorantLeftDays"] == DEODORANT_TOTAL_DAYS - 4
+
+
+def test_a_settings_write_does_not_shrink_the_served_block():
+    """One changed field must not erase every other default from the answer.
+
+    `handle_ha_command` stores only the key it changed, and both the device
+    payload and the HA state document used to SUBSTITUTE the stored dict for
+    the defaults rather than merge. So the first change to any setting cut
+    `dev_device_info`'s settings block down to that one key — and the device
+    reads that block as its whole configuration. A fountain shows it worst:
+    it reports no settings of its own, so nothing refills the block.
+    """
+    from petkit_local.devices.defaults import default_settings
+    from petkit_local.devices.payloads import to_device_info
+
+    dev = Device(device_type="w7h", petkit_id=9)
+    full = set(default_settings(dev))
+    assert len(full) > 1
+
+    dev.config.setdefault("settings", {})["manualLock"] = 1
+    served = to_device_info(dev)["result"]["settings"]
+
+    assert full <= set(served), "defaults were dropped by a single write"
+    assert served["manualLock"] == 1, "the stored value must win over the default"
+
+
+def test_a_camera_feeder_is_told_its_cloud_storage_is_active():
+    """`capacity[]`/`cloudProduct` gate cloud storage on EVERY camera.
+
+    They were sent only to camera litter boxes, so a camera feeder recorded a
+    feed clip and never staged or uploaded it — `ctrl` logs "feed not upload
+    pic and video ..." and the event reports `media: 0`. Found independently
+    on a D4H and a D4SH.
+    """
+    from petkit_local.devices.payloads import to_device_info
+
+    for device_type in ("d4h", "d4sh", "t5"):
+        served = to_device_info(Device(device_type=device_type, petkit_id=3))["result"]
+        assert served.get("capacity"), f"{device_type} got no capacity block"
+        assert served.get("cloudProduct"), f"{device_type} got no cloudProduct"
+
+    # A non-camera feeder has no cloud storage to enable, and must not be told
+    # it has: the block would be describing a service the hardware lacks.
+    plain = to_device_info(Device(device_type="d4", petkit_id=4))["result"]
+    assert "capacity" not in plain and "cloudProduct" not in plain
+
+
+def test_a_camera_feeder_is_seeded_with_the_upload_enables():
+    """The device never reports these, and `to_device_info` serves seeds back,
+    so an absent key reads to the firmware as a zero."""
+    from petkit_local.devices.defaults import default_settings
+
+    seeded = default_settings(Device(device_type="d4sh", petkit_id=5))
+    assert seeded["feedPicture"] == 1
+    assert seeded["eatVideo"] == 1
+    assert seeded["upload"] == 1
+
+
+def test_the_camera_gating_schedule_is_sent_as_objects():
+    """A camera feeder's recording window is served as `cameraMultiNew`, the
+    key its `pk_parse_cameraMultiNew_func` parser reads (it saves the value
+    into its internal `cameraMultiRange`). The value is a `weekly` object with
+    `rpt`/`time`; a bare `[[start, end]]` makes every lookup null, so the table
+    stays empty, the camera never arms (`cameraStatus` 0) and every feed reports
+    `media: 0`. Serving the internal `cameraMultiRange` name reaches no parser
+    at all — confirmed live on a D4SH — so the KEY matters as much as the shape.
+    """
+    from petkit_local.devices.defaults import multi_config_ranges
+
+    ranges = multi_config_ranges(Device(device_type="d4sh", petkit_id=6))
+    assert "cameraMultiNew" in ranges and "cameraMultiRange" not in ranges
+    entries = ranges["cameraMultiNew"]
+    assert isinstance(entries[0], dict), "still the bare-range shape"
+    assert "rpt" in entries[0] and "time" in entries[0]
+
+
+def test_a_dual_hopper_feed_counts_toward_the_daily_totals():
+    """Both sensors read `feedState`, which no feeder report carries.
+
+    A D4SH reports the amount PER HOPPER (`real_amount1`/`real_amount2`), so
+    reading only the unsuffixed `real_amount` would leave a dual-hopper
+    feeder's counters permanently at zero.
+    """
+    from petkit_local.events import normalize
+
+    dev = Device(device_type="d4sh", petkit_id=11)
+    normalize.apply_derived_state(dev, "feed_over", {
+        "day": 20260808, "real_amount1": 0, "real_amount2": 12})
+    normalize.apply_derived_state(dev, "feed_over", {
+        "day": 20260808, "real_amount1": 3, "real_amount2": 0})
+    assert dev.state["feedState"] == {"day": 20260808, "times": 2,
+                                      "realAmountTotal": 15}
+
+
+def test_a_jammed_feed_dispensed_nothing_and_counts_as_nothing():
+    from petkit_local.events import normalize
+
+    dev = Device(device_type="d4sh", petkit_id=12)
+    normalize.apply_derived_state(dev, "feed_over", {
+        "day": 20260808, "real_amount1": 0, "real_amount2": 0, "err_code": 8})
+    assert "feedState" not in dev.state
+
+
+def test_the_totals_start_over_when_the_device_says_the_day_changed():
+    """`day` is the DEVICE's reading of which day it is, so the rollover
+    follows its clock rather than the container's."""
+    from petkit_local.events import normalize
+
+    dev = Device(device_type="d4h", petkit_id=13)
+    normalize.apply_derived_state(dev, "feed_over", {"day": 20260808, "real_amount": 10})
+    normalize.apply_derived_state(dev, "feed_over", {"day": 20260809, "real_amount": 4})
+    assert dev.state["feedState"] == {"day": 20260809, "times": 1,
+                                      "realAmountTotal": 4}
+
+
+def test_the_feed_totals_are_not_persisted():
+    """`Device.to_dict` excludes `state` on purpose and this lives there."""
+    from petkit_local.events import normalize
+
+    dev = Device(device_type="d4h", petkit_id=14)
+    normalize.apply_derived_state(dev, "feed_over", {"day": 20260808, "real_amount": 10})
+    assert "feedState" not in json.dumps(dev.to_dict())
+
+
+def test_pressing_reset_desiccant_starts_its_countdown():
+    """The sensor and the button both existed; nothing connected them, so
+    "Desiccant Days Left" could never hold a value."""
+    dev = Device(device_type="d4sh", petkit_id=15)
+    handle_ha_command(dev, _entity(dev, "reset_desiccant"), "PRESS")
+    assert dev.state["desiccantLeftDays"] == 30

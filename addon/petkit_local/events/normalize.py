@@ -469,6 +469,48 @@ def apply_derived_state(device: Device, event_type: str, content: dict) -> None:
 
     elif code.kind == codes.KIND_FEEDING and code.role == codes.ROLE_DONE:
         device.state["lastFeed"] = _now_iso()
+        _accumulate_feed_totals(device, content)
+
+
+def _accumulate_feed_totals(device: Device, content: dict) -> None:
+    """Keep today's "Times Dispensed" and "Total Dispensed" running.
+
+    Both sensors read `state.feedState.*`, and no feeder state report carries
+    those totals — on PetKit's own service the cloud sums them from the feed
+    events, so being the cloud means doing the same. Without this the two
+    entities existed and could never hold a value.
+
+    Per DAY, which the device's own vocabulary settles: the same block carries
+    `planAmountTotal` and `eatAvg`, neither of which means anything as a
+    lifetime figure. `content.day` (YYYYMMDD) is the device's own reading of
+    which day it is, so the rollover follows its clock rather than ours.
+
+    A D4SH reports the amount PER HOPPER, `real_amount1` and `real_amount2`;
+    single-hopper firmware uses `real_amount`. Reading only the unsuffixed
+    name would leave a dual-hopper feeder's counter permanently at zero. A
+    feed that dispensed nothing — a jam, an outlet block — is not a dispense,
+    so it neither counts nor adds.
+
+    NOT persisted: `Device.to_dict` deliberately excludes `state`, and this
+    stays inside it. The totals are lost on restart and rebuilt from the day's
+    remaining feeds, which is the same trade every other `state` key makes.
+    """
+    grams = sum(
+        to_float(content.get(key), 0) or 0
+        for key in ("real_amount", "real_amount1", "real_amount2",
+                    "realAmount", "realAmount1", "realAmount2")
+        if key in content
+    )
+    if grams <= 0:
+        return
+    day = content.get("day")
+    totals = device.state.get("feedState")
+    if not isinstance(totals, dict) or (day is not None and totals.get("day") != day):
+        totals = {"day": day, "times": 0, "realAmountTotal": 0}
+    totals["times"] = int(to_float(totals.get("times"), 0) or 0) + 1
+    totals["realAmountTotal"] = round(
+        (to_float(totals.get("realAmountTotal"), 0) or 0) + grams, 1)
+    device.state["feedState"] = totals
 
 
 def _now_iso() -> str:

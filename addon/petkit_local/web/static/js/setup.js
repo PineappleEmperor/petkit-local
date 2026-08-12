@@ -120,6 +120,7 @@ async function loadSetup() {
       ${guard('proxy_block_log_upload', 'proxy_block_log_upload' in s ? s.proxy_block_log_upload : true, 'Block log upload <span class="badge warn">privacy</span>', 'withhold the token the device needs to send its debug log to PetKit')}
       ${guard('proxy_mqtt_bridge', 'proxy_mqtt_bridge' in s ? s.proxy_mqtt_bridge : true, 'Upstream MQTT bridge', 'also bridge the device’s MQTT session to the real Aliyun broker')}
       ${guard('proxy_media_real_oss', !!s.proxy_media_real_oss, 'Media → real OSS', 'let the device upload recordings to PetKit instead of us — nothing lands locally')}
+      ${guard('proxy_local_cvr_window', !!s.proxy_local_cvr_window, 'Keep recording locally', 'ignore the cloud’s subscription window and tell the camera its storage is active — a lapsed PetKit plan otherwise stops recording with no error anywhere')}
     </div>
     ${on ? upstreamStatus(i.upstream || {}) : ''}
     ${on ? `<div id="blockedView" style="margin-top:14px"></div>` : ''}

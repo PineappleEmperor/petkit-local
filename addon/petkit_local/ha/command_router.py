@@ -104,6 +104,10 @@ class CommandRouter:
         """Wire the MQTT bridge so HA setting changes reach the device in real time."""
         self._command_sink = sink
 
+    def clear_entities(self, device_id: int) -> None:
+        """Drop a device's command-routing index, e.g. on device deletion."""
+        self._entity_index.pop(device_id, None)
+
     def set_entities(self, device_id: int, entities: Iterable[Any]) -> None:
         """Record which of a device's entities can be written to, by suffix.
 

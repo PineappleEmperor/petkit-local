@@ -829,6 +829,7 @@ async def test_timeline_filters_by_pet():
             # counts narrow with the selection, and the unattributed cleaning is
             # not hers
             assert mine["counts"] == {"all": 1, "pet": 0, "toileting": 1,
+                                      "drinking": 0, "feeding": 0, "cleaning": 0,
                                       "health_alert": 0, "fault": 0}
 
             # a pet id nobody matches empties the view rather than ignoring it

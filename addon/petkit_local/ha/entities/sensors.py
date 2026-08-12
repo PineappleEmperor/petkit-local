@@ -156,12 +156,43 @@ LITTER_CAMERA_HALL_SENSORS = [
               entity_category="diagnostic"),
 ]
 
-# REMOVED (2026-07-29): `garbage_bag_state` (state.packageState) and
-# `purification_days` (state.purificationLeftDays). Neither string appears
-# anywhere in real T5 firmware, while every other field on these lists does —
-# they came from the reference integration, which models PetKit's CLOUD API,
-# whose field names are not the device's. They were published to every litter
-# box and could never hold a value.
+# REMOVED (2026-07-29): `purification_days` (state.purificationLeftDays). The
+# string appears nowhere in real T5 firmware, while every other field on these
+# lists does — it came from the reference integration, which models PetKit's
+# CLOUD API, whose field names are not the device's.
+#
+# `garbage_bag_state` was removed alongside it and is BACK, below, for `t6`
+# only. The reasoning was sound and the scope was not: it was checked against a
+# T5, which has no bagging mechanism, and applied to every litter box. A T6
+# sends `packageState` in all 3475 reports of a 67-hour capture.
+
+#: The Purobot Ultra's waste-bagging mechanism. `t6` only — no other litter box
+#: has the hardware, and publishing these where the field cannot arrive is what
+#: got the first one deleted.
+#:
+#: Every one is raw. Observed values are -1/1 (`packState`, `baggingState`),
+#: 0/1 (`sealDoorState`) and 0/2 (`boxStoreState`), and nothing names what any
+#: of them mean — a label here would be invented, which is the failure mode
+#: this whole file is arranged to avoid.
+LITTER_PACKAGING_SENSORS = [
+    EntityDef(component="sensor", key="garbage_bag_state", name="Bag State",
+              value_path="state.packageState", icon="mdi:trash-can-outline",
+              entity_category="diagnostic"),
+    EntityDef(component="sensor", key="packing_state", name="Packing State",
+              value_path="state.packState", icon="mdi:package-variant",
+              entity_category="diagnostic"),
+    EntityDef(component="sensor", key="bagging_state", name="Bagging State",
+              value_path="state.baggingState", icon="mdi:package-variant-closed",
+              entity_category="diagnostic"),
+    EntityDef(component="sensor", key="seal_door_state", name="Seal Door State",
+              value_path="state.sealDoorState", icon="mdi:door-sliding",
+              entity_category="diagnostic"),
+    EntityDef(component="sensor", key="box_store_state", name="Bin Store State",
+              value_path="state.boxStoreState", icon="mdi:archive",
+              entity_category="diagnostic"),
+    EntityDef(component="sensor", key="package_count", name="Bags Left",
+              value_path="state.packageCount", icon="mdi:counter"),
+]
 
 FEEDER_SENSORS = [
     EntityDef(component="sensor", key="device_status", name="Device Status",
@@ -172,10 +203,17 @@ FEEDER_SENSORS = [
               value_path="state.desiccantLeftDays", unit="days", icon="mdi:water-outline"),
     EntityDef(component="sensor", key="rssi", name="WiFi Signal",
               value_path="state.rssi", device_class="signal_strength", unit="dBm"),
+    # Both are running DAILY totals, summed from the feed events by
+    # `events/normalize.py::_accumulate_feed_totals` -- no device reports them,
+    # and on PetKit's own service the cloud does the same sum. `state_class`
+    # matters because they reset at the device's midnight: without it HA's
+    # long-term statistics read each rollover as the value genuinely falling.
     EntityDef(component="sensor", key="times_dispensed", name="Times Dispensed",
-              value_path="state.feedState.times", icon="mdi:counter"),
+              value_path="state.feedState.times", icon="mdi:counter",
+              state_class="total_increasing"),
     EntityDef(component="sensor", key="total_dispensed", name="Total Dispensed",
-              value_path="state.feedState.realAmountTotal", unit="g", icon="mdi:scale"),
+              value_path="state.feedState.realAmountTotal", unit="g", icon="mdi:scale",
+              state_class="total_increasing"),
     EntityDef(component="sensor", key="food_in_bowl", name="Food in Bowl",
               value_path="state.weight", unit="g", icon="mdi:bowl"),
     EntityDef(component="sensor", key="food_bowl_pct", name="Food Bowl Level",

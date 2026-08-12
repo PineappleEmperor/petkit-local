@@ -198,12 +198,16 @@ BuildKit's own `TARGETARCH` (which is what the 32-bit-ARM glibc base does).
   matches the firmware rather than relaxing something it enforces — but anything on the path can
   pose as the cloud and have its commands relayed down. OTA stays blocked and redaction still
   applies, neither resting on server identity.
-- **A settings write cannot be verified from telemetry.** The T5's `property/post` carries sensors,
-  errors, memory and wifi — no settings at all — and in proxy mode `dev_device_info` is answered by
-  the real cloud, not the device. So whether a `property.set` took effect is observable only on the
-  box itself. Note the raw `{"suffix","payload"}` panel escape hatch publishes VERBATIM: a command
-  sent that way lacks the `method`/`id`/`params` envelope and the firmware has nothing to dispatch
-  on. Use the `entity` form, which builds it (`ha/commands.py`).
+- **SOME settings writes ARE observable in telemetry** — `property/post` carries more than sensors.
+  A T5 answered a `property.set{timezone}` with a `property/post` carrying the new value ~30s later
+  (verified on hardware 2026-08-12), and the 2026-08-11 four-family capture shows the same frame
+  carrying `locale`, `sandType`, `cameraPosition`, `wtLock`, `sprayResetTime` and the whole
+  `package*` block. Which fields come back is per family and largely unmapped, so a write that
+  produces no echo is not proof it failed. In proxy mode `dev_device_info` is answered by the real
+  cloud rather than the device, so that route confirms nothing either way. Note the raw
+  `{"suffix","payload"}` panel escape hatch publishes VERBATIM: a command sent that way lacks the
+  `method`/`id`/`params` envelope and the firmware has nothing to dispatch on. Use the `entity`
+  form, which builds it (`ha/commands.py`).
 - **State parsing** is confirmed against real T4/T5 captures; spellings for other codenames come
   from pypetkitapi and localkit. Capture mode (panel: Setup -> Settings) collects
   what is needed to fix one.
@@ -229,7 +233,16 @@ BuildKit's own `TARGETARCH` (which is what the 32-bit-ARM glibc base does).
   recognition does not work.
 - **Camera `still_image_url`** needs the device IP from a state report plus a rooted Ingenic device
   running `tserver`. **Video thumbnails need ffmpeg**; image thumbnails are the original file.
-- **The device has no timezone**: `ctrl` takes one from the BLE provisioning payload only, so a
-  device provisioned before that field was sent burns UTC into video watermarks until it is
-  re-provisioned. **K2/K3 entity definitions assume a WiFi purifier** that does not exist — both
-  models are BLE-only today.
+- **The device has no timezone of its own, and there are TWO ways to give it one.** BLE
+  provisioning (`ssid:%s pwd:%s hide:%d locale:%s timezone:%f`) is the path that survives being
+  the only one used, so a device provisioned before that field was sent burns UTC into video
+  watermarks. But `property.set{timezone}` also works at runtime, and the value **must be a JSON
+  STRING**: `parse_recv_property_set_normal` reads `cJSON.valuestring` and calls `atof()`, so a
+  JSON number leaves `valuestring` NULL and the write is a silent no-op. Verified on a live T5
+  (2026-08-12): the number changed nothing for minutes; `"5.75"` moved the video watermark within
+  ~30s. The handler is present in T5 and D4SH (MIPS) and W7-262863 (ARM), where `timezone` is the
+  only field in a whole run of `===== set X (%d) =====` handlers read as `%s`. Readback is LOSSY —
+  the device reports its own `%.1f`, so `5.75` comes back as `5.8`. HTTP `dev_device_info` still
+  wants a NUMBER for the same field.
+- **K2/K3 entity definitions assume a WiFi purifier** that does not exist — both models are
+  BLE-only today.

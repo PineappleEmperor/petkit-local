@@ -45,10 +45,9 @@ RUNTIME_DERIVED = {
 #: Each entry must name its evidence. Adding one without evidence defeats the
 #: whole test.
 UNSEEDED_BY_DESIGN = {
-    # Both appear as strings in real D4SH firmware (`ctrl`, `libbase.so`),
-    # unlike `feedTone`/`disturbMode`, which appear nowhere and were removed.
+    # `feedSound` is seeded for camera feeders but not for non-camera ones
+    # (d3, feeder, feedermini, d4, d4s) where the hardware is unconfirmed.
     "feedSound",
-    "surplusControl",
     # W7H. Each is a wire name the device's own `ctrl` registers a set handler
     # for, per the reverse-engineered settings map supplied 2026-07-31
     # (`wire_to_set_handler`), so the write lands. What the map does NOT give is
@@ -109,6 +108,16 @@ UNSEEDED_BY_DESIGN = {
 #: the exact failure this file was written to catch, and it walked straight past
 #: it. So a passthrough-only key now has to be listed here with its evidence.
 PASSTHROUGH_ATTESTED = {
+    # The Purobot Ultra's bagging mechanism, from a 67-hour capture of a real
+    # T6 (2026-08-11). Counts are out of its 3475 `property/post` frames. The
+    # VALUES are not decoded and the entities publish them raw -- what is
+    # attested here is only that the field arrives.
+    "packageState": "T6 capture 2026-08-11: 3475/3475 property posts",
+    "packState": "T6 capture 2026-08-11: 3475 posts, values -1 (3470) / 1 (5)",
+    "baggingState": "T6 capture 2026-08-11: 3475 posts, values -1 (3315) / 1 (160)",
+    "sealDoorState": "T6 capture 2026-08-11: 3475 posts, values 0 / 1 (179)",
+    "boxStoreState": "T6 capture 2026-08-11: 3475 posts, values 0 (3470) / 2 (5)",
+    "packageCount": "T6 capture 2026-08-11: 3475 posts, values 10 and 9",
     # In real T5 `ctrl`, and in all 1254 captured litter snapshots.
     "sprayState": "T5 ctrl string table; 1254/1254 captured snapshots",
     "boxState": "T5 ctrl string table; 1254/1254 captured snapshots",

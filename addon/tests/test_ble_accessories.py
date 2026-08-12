@@ -1272,3 +1272,23 @@ def test_a_mac_that_cannot_be_parsed_is_kept_not_blanked():
     reg = BLERegistry()
     reg.register(ble_type="w5", petkit_id=700, mac="nonsense", link_with=10)
     assert reg.get(700).mac == "nonsense"
+
+
+def test_the_empty_ble_list_answer_stays_under_the_firmware_length_gate():
+    """40 bytes, checked before any parsing, on three device families.
+
+    `pk_schmg_parse_ble_dev_list` rejects a shorter body outright with
+    `ble list len too short`. Our empty answer is below that, which is WHY it
+    is safe: it never reaches the parser that owners reported crashing when
+    1.8.1 sent `list: []`. Both serialisations are measured because they are
+    not the same length — aiohttp spaces its JSON and the MQTT bridge does
+    not — so a change could pass on one transport and cross the gate on the
+    other.
+    """
+    import json as _json
+
+    empty = {"result": {"nextTick": 3600}}
+    http_len = len(_json.dumps(empty).encode())
+    mqtt_len = len(_json.dumps(empty, separators=(",", ":")).encode())
+    assert http_len < 40, f"HTTP empty answer is {http_len} B and now reaches the parser"
+    assert mqtt_len < 40, f"MQTT empty answer is {mqtt_len} B and now reaches the parser"

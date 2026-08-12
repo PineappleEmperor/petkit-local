@@ -425,8 +425,13 @@ class MQTTBridge:
         # while the `property` stream stayed silent for 74 minutes either side.
         # Applied BEFORE apply_derived_state, the same order the HTTP path uses,
         # so a derived timestamp is not overwritten by the snapshot.
-        if apply_state_snapshot(device, params.get("state")):
+        event_state = params.get("state")
+        if apply_state_snapshot(device, event_state):
             self._registry.mark_dirty()
+            if self._hub and isinstance(event_state, (dict, str)):
+                body = event_state if isinstance(event_state, dict) else {}
+                if body:
+                    self._hub.set_state_report(device.petkit_id, body)
 
         # Last Clean / Last Visit / Last Feed / Pet Weight exist only as a
         # consequence of an event, so they are derived here rather than in any
@@ -522,7 +527,21 @@ class MQTTBridge:
         copied — a property post carries telemetry and settings in one flat
         dict, and letting telemetry into `settings` would make it look like a
         user-set value and get echoed back on the next write.
+
+        Two keys are routed outside settings: ``feed`` stores the feeder's
+        schedule (served back by ``dev_feed_get``), and ``schedule`` stores
+        the litter box's cleaning/deodorizing schedule.
         """
+        feed = params.get("feed")
+        if isinstance(feed, dict) and device.is_feeder:
+            device.config["feed_schedule"] = feed
+            log.info("Stored feed schedule for device %d from property post",
+                     device.petkit_id)
+        sched = params.get("schedule")
+        if isinstance(sched, list) and device.is_litter:
+            device.config["schedule"] = sched
+            log.info("Stored cleaning schedule for device %d from property post",
+                     device.petkit_id)
         fields = get_setting_fields(device)
         if not fields:
             return

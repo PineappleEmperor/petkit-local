@@ -66,6 +66,14 @@ FEEDER_BUTTONS = [
     EntityDef(component="button", key="food_replenished", name="Food Replenished", icon="mdi:food-apple"),
 ]
 
+#: Camera feeder buttons. `play_sound` plays the currently selected custom
+#: sound on the device; the sound must be uploaded and selected first (see
+#: `ha/entities/numbers.py::FEEDER_CAMERA_NUMBERS` for `selectedSound`).
+FEEDER_CAMERA_BUTTONS = [
+    EntityDef(component="button", key="play_sound", name="Play Sound",
+              icon="mdi:play-circle", entity_category="config"),
+]
+
 #: A Dual-Hopper only. `feed` above already dispenses from both, so these are
 #: the one thing it cannot express: food from one hopper and not the other.
 #: PetKit's app does exactly this, and does it through the same service rather

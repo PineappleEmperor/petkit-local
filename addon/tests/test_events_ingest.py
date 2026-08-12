@@ -451,7 +451,8 @@ def test_filter_counts_and_matches_filter():
         {"event_kind": "pet", "pet_id": None},
     ]
     counts = ingest.filter_counts(sessions)
-    assert counts == {"all": 3, "pet": 1, "toileting": 1, "health_alert": 0, "fault": 1}
+    assert counts == {"all": 3, "pet": 1, "toileting": 1, "drinking": 0,
+                      "feeding": 0, "cleaning": 0, "health_alert": 0, "fault": 1}
 
     assert ingest.matches_filter(sessions[0], "toileting") is True
     assert ingest.matches_filter(sessions[1], "toileting") is False
@@ -469,7 +470,8 @@ def test_a_yowling_visit_is_both_a_visit_and_a_health_alert():
     quiet = {"event_kind": "toilet_visit", "content": {"petVoice": 0}}
     yowled = {"event_kind": "toilet_visit", "content": {"petVoice": 1}}
     assert ingest.filter_counts([quiet, yowled]) == {
-        "all": 2, "pet": 0, "toileting": 2, "health_alert": 1, "fault": 0}
+        "all": 2, "pet": 0, "toileting": 2, "drinking": 0, "feeding": 0,
+        "cleaning": 0, "health_alert": 1, "fault": 0}
     assert ingest.matches_filter(yowled, "toileting") is True
     assert ingest.matches_filter(yowled, "health_alert") is True
     assert ingest.matches_filter(quiet, "health_alert") is False
@@ -561,3 +563,50 @@ def test_display_time_falls_back_when_the_device_reports_no_span():
     # Nothing at all to go on -> arrival time, never None.
     bare = _ev(1, 1, 1234.0, "10", "toilet_visit", related_event="v")
     assert ingest.group_sessions([bare])[0]["display_ts"] == 1234.0
+
+
+def test_a_feeding_heads_its_own_card_with_its_start_folded_in():
+    """`feed_start` and `feed_over` share an `event_id`, so they are one meal.
+
+    Grouping begins at the anchors, and feeding was not among the kinds allowed
+    to anchor — so on a feeder every event fell through to a flat standalone
+    row and `related_event` went unused, even though `codes.py` had marked
+    `feed_over` an anchor all along.
+    """
+    ep = "300004258_1786227910"
+    rows = [
+        _ev(1, 7, 1786227913, "feed_start", "feeding", related_event=ep,
+            content={"id": "r_20260808_80712_80712-1", "time": 80709}),
+        _ev(2, 7, 1786227916, "feed_over", "feeding", related_event=ep,
+            content={"start_time": 1786227910, "result": 0, "real_amount2": 1}),
+    ]
+    sessions = ingest.group_sessions(rows)
+    assert len(sessions) == 1, "a meal split into unrelated rows"
+    assert sessions[0]["event_kind"] == "feeding"
+    assert [s["id"] for s in sessions[0]["sub_events"]] == [1]
+
+
+def test_a_card_is_headed_by_the_DEVICE_time_not_our_arrival():
+    """`ts` is when the report reached us; `start_time` is when it happened.
+
+    Measured on a reported T6: both `start_time` and `mark` said 14:19:58 while
+    the card said 14:20:19 — 21 seconds of network and ingest presented as the
+    moment the cat was seen. Only a toilet visit carries `time_in`, so looking
+    for that alone left every other kind of card showing arrival.
+    """
+    rows = [_ev(1, 7, 1786450819, "pet_detect", "motion",
+                related_event="7_30000005_1786450798",
+                content={"start_time": 1786450798, "mark": 1786450798})]
+    assert ingest.group_sessions(rows)[0]["display_ts"] == 1786450798
+
+
+def test_feeding_drinking_and_cleaning_are_filterable():
+    """Each had no bucket at all, so a feeder's and a fountain's cards showed
+    under "All" and were reachable from no other chip — a water refill could
+    only be found by scrolling past it."""
+    rows = [{"event_kind": k} for k in ("feeding", "drinking", "cleaning")]
+    counts = ingest.filter_counts(rows)
+    assert counts["feeding"] == counts["drinking"] == counts["cleaning"] == 1
+    for row, chip in zip(rows, ("feeding", "drinking", "cleaning"), strict=True):
+        assert ingest.matches_filter(row, chip) is True
+        assert ingest.matches_filter(row, "toileting") is False

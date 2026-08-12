@@ -90,13 +90,23 @@ def _started_at(anchor: dict, pet_in: dict | None) -> float | None:
     with the end rather than the beginning.
 
     `content.time_in` is the device's own entry timestamp and is what the
-    official app shows. The `pet_in` pairing is the MQTT-side fallback, where
-    no summary field exists. Returns None when neither is available, leaving
-    the caller to fall back to arrival time.
+    official app shows. `start_time` and `mark` are the same idea for every
+    OTHER kind of episode: only a toilet visit summary carries `time_in`, so
+    looking for it alone meant a `pet_detect` card -- and after the feeding and
+    drinking cards were added, every one of those too -- headed itself with the
+    moment the report ARRIVED. Measured on a reported T6: `start_time` and
+    `mark` both said 14:19:58 and the header said 14:20:19, 21 seconds of
+    network and ingest showing as the time the cat was seen.
+
+    The `pet_in` pairing is below them because it is an arrival time as well,
+    just a closer one. Returns None when the device named no time at all,
+    leaving the caller to fall back to arrival.
     """
-    time_in = to_float(_content_of(anchor).get("time_in"), None)
-    if time_in is not None and time_in > 0:
-        return time_in
+    content = _content_of(anchor)
+    for key in ("time_in", "start_time", "mark"):
+        value = to_float(content.get(key), None)
+        if value is not None and value > 0:
+            return value
     if pet_in is not None and pet_in is not anchor and pet_in.get("ts"):
         return pet_in["ts"]
     return None
@@ -201,12 +211,27 @@ def _assign_episode_media(session: dict, events: list[dict]) -> None:
 
 def _anchor_events(events: list[dict]) -> list[dict]:
     """The events eligible to head a card of their own."""
-    # A toilet visit, a pet/motion detection or an error heads a card. A
-    # *detail* code never does: a "24" detection result belongs under the "20"
-    # it reports on, and an "Error cleared" under the error it clears.
+    # Two groups, and the difference is whether a *detail* code is admitted.
+    #
+    # An EPISODE kind brings its details with it, because grouping starts here:
+    # `feed_start` is a detail and shares its `event_id` with the `feed_over`
+    # that closes the meal, so leaving it out would leave it with no card to be
+    # folded under. `_cards_from_episodes` then picks the real head out of the
+    # group via `codes.ANCHOR_CODES` and files the rest as steps.
+    #
+    # An ANCHOR kind admits only its non-details: a "24" detection result
+    # belongs under the "20" it reports on, and an "Error cleared" under the
+    # error it clears.
+    #
+    # Feeding and drinking used to be in neither, so on a feeder and a fountain
+    # `by_related` was ALWAYS empty and every event fell through to a flat
+    # standalone row — while `codes.py` had marked `feed_over`, `eat_over` and
+    # `drink_over` as anchors all along, and the rows already carried the right
+    # `related_event`. Only this function disagreed.
+    episode_kinds = (codes.KIND_TOILET, codes.KIND_FEEDING, codes.KIND_DRINKING)
     anchor_kinds = (codes.KIND_PET, codes.KIND_MOTION, codes.KIND_ERROR)
     return [e for e in events
-            if e.get("event_kind") == codes.KIND_TOILET
+            if e.get("event_kind") in episode_kinds
             or (e.get("event_kind") in anchor_kinds
                 and not is_detail_event(e.get("event_type"),
                                         e.get("device_type")))]
@@ -512,6 +537,11 @@ def _filter_buckets(session: dict) -> set[str]:
     so 5 and 4 are its "not measured" codes and we cannot tell an abnormal
     reading from a missing one. Guessing would put a health warning on a
     healthy cat.
+
+    Feeding, drinking and cleaning get chips of their own. Without them a
+    feeder's and a fountain's cards belonged to no chip at all: they showed
+    under "All" and were unreachable from every other filter, which is how a
+    water refill came to be findable only by scrolling past it.
     """
     kind = session.get("event_kind")
     buckets: set[str] = set()
@@ -521,6 +551,12 @@ def _filter_buckets(session: dict) -> set[str]:
         buckets.add("pet")
     elif kind == codes.KIND_ERROR:
         buckets.add("fault")
+    elif kind == codes.KIND_FEEDING:
+        buckets.add("feeding")
+    elif kind == codes.KIND_DRINKING:
+        buckets.add("drinking")
+    elif kind == codes.KIND_CLEANING:
+        buckets.add("cleaning")
 
     if to_int((session.get("content") or {}).get("petVoice"), 0):
         buckets.add("health_alert")
@@ -528,13 +564,17 @@ def _filter_buckets(session: dict) -> set[str]:
 
 
 def filter_counts(sessions: list[dict]) -> dict:
-    """Chip badge numbers: `{all, pet, toileting, health_alert, fault}`.
+    """Chip badge numbers, one key per chip the panel offers.
 
-    `all` is the total, so it is NOT the sum of the others — sessions in no
-    bucket (a bare cleaning cycle, an unrecognised code) are counted only
-    there, and a yowling visit is counted twice on purpose.
+    `all` is the total, so it is NOT the sum of the others — a session in no
+    bucket (an unrecognised code) is counted only there, and a yowling visit is
+    counted twice on purpose.
+
+    Every key is always present, so a chip renders `0` rather than `undefined`
+    on a device family that never fills it.
     """
     counts = {"all": len(sessions), "pet": 0, "toileting": 0,
+              "drinking": 0, "feeding": 0, "cleaning": 0,
               "health_alert": 0, "fault": 0}
     for s in sessions:
         for bucket in _filter_buckets(s):

@@ -295,3 +295,7 @@ class EventHub:
         once the corresponding `record_*` has fired.
         """
         return self._diag.get(device_id, {})
+
+    def forget_device(self, device_id: int) -> None:
+        """Drop all diagnostic state for a deleted device."""
+        self._diag.pop(device_id, None)

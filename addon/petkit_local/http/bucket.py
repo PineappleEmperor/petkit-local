@@ -34,7 +34,8 @@ log = logging.getLogger(__name__)
 
 def create_bucket_app(media_root: str, hub: "EventHub | None" = None,
                       log_root: str | None = None,
-                      registry: "DeviceRegistry | None" = None) -> web.Application:
+                      registry: "DeviceRegistry | None" = None,
+                      data_dir: str = "/data") -> web.Application:
     """Build the OSS-compatible upload app the device's uploaders talk to.
 
     Args:
@@ -63,7 +64,9 @@ def create_bucket_app(media_root: str, hub: "EventHub | None" = None,
     app["log_root"] = log_root
     app["registry"] = registry
     app["hub"] = hub
+    app["data_dir"] = data_dir
 
+    app.router.add_route("GET", "/sounds/{device_id}/{filename}", handle_sound_file)
     app.router.add_route("PUT", "/{path:.*}", handle_put)
     app.router.add_route("POST", "/{path:.*}", handle_post)
     app.router.add_route("GET", "/{path:.*}", handle_get)
@@ -362,3 +365,20 @@ async def handle_head(request: web.Request) -> web.Response:
             headers={"Content-Length": str(os.path.getsize(fpath))},
         )
     return web.Response(status=404)
+
+
+async def handle_sound_file(request: web.Request) -> web.Response:
+    """Serve an uploaded custom sound file for device download."""
+    device_id = request.match_info["device_id"]
+    filename = request.match_info["filename"]
+    data_dir = request.app.get("data_dir", "/data")
+    try:
+        path = safe_join(
+            safe_join(os.path.join(data_dir, "sounds"), device_id),
+            filename,
+        )
+    except UnsafePathError:
+        return web.Response(status=400, text="bad path")
+    if os.path.isfile(path):
+        return web.FileResponse(path)
+    return web.Response(status=404, text="not found")

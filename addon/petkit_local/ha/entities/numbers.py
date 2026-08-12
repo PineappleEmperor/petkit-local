@@ -68,6 +68,10 @@ FEEDER_CAMERA_NUMBERS = [
     EntityDef(component="number", key="volume", name="Volume",
               value_path="settings.volume", icon="mdi:volume-high",
               min_value=0, max_value=9, step=1),
+    EntityDef(component="number", key="selected_sound", name="Selected Sound",
+              value_path="settings.selectedSound", icon="mdi:music-note",
+              min_value=-1, max_value=10, step=1,
+              entity_category="config"),
 ]
 
 FOUNTAIN_NUMBERS = [

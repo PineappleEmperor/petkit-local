@@ -16,6 +16,8 @@ from aiohttp.test_utils import TestClient, TestServer, make_mocked_request
 from petkit_local.config import PANEL_LIVE_KEYS
 from petkit_local.devices.registry import DeviceRegistry
 from petkit_local.devices.ble import BLERegistry
+from petkit_local.ha.categories import get_entities_for_device
+from petkit_local.ha.commands import ALL_ACTIONS
 from petkit_local.web.hub import EventHub
 from petkit_local.web.api.settings import LIVE_SETTINGS
 from petkit_local.web.panel import create_panel_app
@@ -187,6 +189,54 @@ async def test_devices_tab_is_one_collapsible_panel_per_device():
         assert "addEventListener('toggle'" in js and "true)" in js
     finally:
         await c.close()
+
+
+async def test_the_timeline_container_is_left_with_nothing_but_our_own_nodes():
+    """`index.html` ships `#timelineView` with a "…" placeholder, and it is a
+    TEXT node. Reassigning innerHTML used to wipe it; inserting elements beside
+    it does not, so it surfaced between the controls and the first card."""
+    js = _panel_js()
+    html = (Path(__file__).resolve().parents[1] / "petkit_local" / "web"
+            / "templates" / "index.html").read_text()
+    assert 'id="timelineView"' in html
+    # Whatever the placeholder is, the renderer must clear what is not its own.
+    assert "node !== controls && node !== list" in js
+
+
+async def test_a_filter_chip_with_no_events_is_not_shown():
+    """Eight chips did not fit the card. A device family that produced nothing
+    contributes a permanent zero, and the selected chip has to stay visible or
+    there would be no way back off it."""
+    js = _panel_js()
+    assert "function visibleFilters(" in js
+    assert "k === 'all' || k === TL_FILTER" in js
+
+
+async def test_timeline_refresh_does_not_rebuild_the_whole_view():
+    """The Timeline reruns 400ms after every event and media frame.
+
+    Rebuilding `#timelineView` wholesale restarted playing videos, collapsed a
+    `<details>` the moment it was opened, and closed the device `<select>` under
+    the pointer. Reported from a four-device install; invisible on a quiet one,
+    where the same code runs a few times a day rather than continuously.
+
+    Two properties keep it usable and both are asserted here, because either one
+    alone still breaks the dropdown: cards are reconciled by key so an unchanged
+    one is REUSED, and the controls are patched only where a value differs.
+    """
+    js = _panel_js()
+    tl = (Path(__file__).resolve().parents[1] / "petkit_local" / "web" / "static"
+          / "js" / "timeline.js").read_text()
+
+    # The wholesale swap this replaced.
+    assert "v.innerHTML" not in tl, "timeline still replaces the whole view"
+    # Reconciliation, and the key it hangs on.
+    assert "function reconcile(" in js and "data-tlkey" in js and "tlkey" in tl
+    # A video whose source did not change is moved, not re-created.
+    assert "function adoptVideos(" in js and "lazyvid[data-src]" in js
+    # Writing an unchanged value to a live DOM is what closes an open dropdown.
+    assert "function patchControls(" in js
+    assert "el.textContent !== text" in js
 
 
 async def test_no_element_id_is_shared_between_device_panels():
@@ -367,6 +417,71 @@ async def test_command_sender_queues_without_bridge():
         assert reg.get(1).command_queue  # queued
     finally:
         await c.close()
+
+
+async def test_action_form_records_a_consumable_reset_like_the_entity_form():
+    """Pressing Reset N50 in the PANEL has to stamp the date, as HA's does.
+
+    The panel posts `{"action": ...}` and Home Assistant goes through
+    `handle_ha_command`; when those were two code paths only the second
+    recorded the replacement date, and for the N50 that record is the
+    countdown's only possible source (the device has no field for it). The
+    symptom was a Reset N50 button that sent its device command and changed
+    nothing anybody could see.
+    """
+    reg = DeviceRegistry()
+    reg.get_or_create(petkit_id=1, device_type="t5", serial_number="SN")
+    app, reg, hub = _panel(reg=reg, bridge=None)
+    c = await _mk_client(app)
+    try:
+        r = await c.post("/api/devices/1/command", data=json.dumps({"action": "reset_n50"}))
+        assert (await r.json())["ok"]
+        assert reg.get(1).config["consumables"]["n50"] > 0
+    finally:
+        await c.close()
+
+
+async def test_action_and_entity_forms_have_the_same_side_effects():
+    """The two request forms are the same press and must stay interchangeable.
+
+    Compared on the SHAPE of what each left behind — which config keys, which
+    consumables — rather than the values, because a reset stamps `time.time()`
+    and the envelope carries an epoch id, so two calls a millisecond apart are
+    legitimately different.
+    """
+    def _shape(dev):
+        cfg = {k: sorted(v) if isinstance(v, dict) else "set" for k, v in dev.config.items()}
+        return sorted(cfg.items())
+
+    for device_type in ("t5", "t6", "d4sh", "w7h"):
+        probe = DeviceRegistry().get_or_create(petkit_id=1, device_type=device_type)
+        keys = [e.key for e in get_entities_for_device(probe)
+                if e.component == "button" and e.key in ALL_ACTIONS]
+        assert keys, f"no button actions for {device_type} — test would prove nothing"
+
+        for key in keys:
+            reg_a, reg_b = DeviceRegistry(), DeviceRegistry()
+            reg_a.get_or_create(petkit_id=1, device_type=device_type, serial_number="SN")
+            reg_b.get_or_create(petkit_id=1, device_type=device_type, serial_number="SN")
+            app_a, reg_a, _ = _panel(reg=reg_a, bridge=None)
+            app_b, reg_b, _ = _panel(reg=reg_b, bridge=None)
+            ca, cb = await _mk_client(app_a), await _mk_client(app_b)
+            try:
+                ra = await ca.post("/api/devices/1/command",
+                                   data=json.dumps({"action": key}))
+                rb = await cb.post("/api/devices/1/command",
+                                   data=json.dumps({"entity": key, "value": ""}))
+                oa, ob = await ra.json(), await rb.json()
+                assert oa.get("ok") and ob.get("ok"), f"{device_type}/{key}: {oa} {ob}"
+                assert oa.get("suffix") == ob.get("suffix"), f"{device_type}/{key}"
+                if "envelope" in oa and "envelope" in ob:
+                    assert oa["envelope"].get("method") == ob["envelope"].get("method")
+                    assert oa["envelope"].get("params") == ob["envelope"].get("params")
+                assert _shape(reg_a.get(1)) == _shape(reg_b.get(1)), \
+                    f"{device_type}/{key} left different state behind"
+            finally:
+                await ca.close()
+                await cb.close()
 
 
 async def test_command_sender_uses_bridge_when_connected():
@@ -1572,5 +1687,113 @@ async def test_a_hash_versioned_module_is_cacheable_forever():
         assert "immutable" in r.headers.get("Cache-Control", "")
         css = await c.get("/static/styles.css")
         assert css.headers.get("Cache-Control") == "no-cache"
+    finally:
+        await c.close()
+
+
+async def test_timezone_override_is_pushed_as_a_STRING():
+    """The type is the whole fix, not a formatting preference.
+
+    `parse_recv_property_set_normal` reads `cJSON.valuestring` and calls
+    `atof()`, so a JSON number leaves `valuestring` NULL and the write is a
+    silent no-op. Verified on a live T5: `5.75` as a number changed nothing for
+    minutes; `"5.75"` moved the video watermark within ~30 seconds.
+    """
+    reg = DeviceRegistry()
+    reg.get_or_create(petkit_id=1, device_type="t5", serial_number="SN")
+    reg.get(1).mqtt_connected = True
+    bridge = FakeBridge(connected=True)
+    app, reg, hub = _panel(reg=reg, bridge=bridge)
+    c = await _mk_client(app)
+    try:
+        r = await c.post("/api/devices/1/timezone", data=json.dumps({"timezone": 5.75}))
+        out = await r.json()
+        assert out["ok"] and out["delivered"] == "mqtt"
+        assert out["override"] == 5.75 and out["source"] == "override"
+
+        _, suffix, envelope = bridge.sent[0]
+        assert suffix == "property/set"
+        sent = envelope["params"]["timezone"]
+        assert isinstance(sent, str), f"sent as {type(sent).__name__}, would be a no-op"
+        assert sent == "5.75"
+
+        # And the HTTP payloads keep sending a number, which is what THEIR
+        # parser reads — the two transports disagree about the type on purpose.
+        from petkit_local.devices.payloads import to_device_info
+        assert to_device_info(reg.get(1))["result"]["timezone"] == 5.75
+    finally:
+        await c.close()
+
+
+async def test_clearing_the_timezone_override_falls_back_to_what_the_device_said():
+    reg = DeviceRegistry()
+    reg.get_or_create(petkit_id=1, device_type="t5", serial_number="SN")
+    reg.get(1).config["reported_timezone"] = -4.0
+    app, reg, hub = _panel(reg=reg, bridge=None)
+    c = await _mk_client(app)
+    try:
+        await c.post("/api/devices/1/timezone", data=json.dumps({"timezone": 2}))
+        r = await c.post("/api/devices/1/timezone", data=json.dumps({"timezone": None}))
+        out = await r.json()
+        assert out["override"] is None
+        assert out["effective"] == -4.0 and out["source"] == "device"
+    finally:
+        await c.close()
+
+
+async def test_a_zone_name_beats_the_zero_a_device_reports():
+    """The D4SH bug: a feeder given only a locale over BLE reports its numeric
+    offset as 0, so a box plainly in Europe/Warsaw told us it was in UTC and had
+    UTC served back — its scheduled feeds firing two hours late. The zone name it
+    ALSO reported is unambiguous and wins."""
+    reg = DeviceRegistry()
+    reg.get_or_create(petkit_id=1, device_type="d4sh", serial_number="SN")
+    d = reg.get(1)
+    d.config["reported_timezone"] = 0.0
+    d.config["locale"] = "Europe/Warsaw"
+    app, reg, hub = _panel(reg=reg, bridge=None)
+    c = await _mk_client(app)
+    try:
+        out = await (await c.get("/api/devices/1/timezone")).json()
+        assert out["effective"] in (1.0, 2.0)   # CET/CEST, never the reported 0.0
+        assert out["source"] == "locale"
+        assert out["reported"] == 0.0
+    finally:
+        await c.close()
+
+
+async def test_timezone_push_falls_back_to_the_heartbeat_queue_on_http():
+    """A feeder on HTTP has no broker session, so the push MUST queue for the
+    next heartbeat. It used to publish over MQTT only, which is why the timezone
+    never reached this exact device and the fix above could not take effect."""
+    reg = DeviceRegistry()
+    reg.get_or_create(petkit_id=1, device_type="d4sh", serial_number="SN")
+    reg.get(1).config["locale"] = "Europe/Warsaw"
+    reg.get(1).mqtt_connected = False
+    app, reg, hub = _panel(reg=reg, bridge=FakeBridge(connected=False))
+    c = await _mk_client(app)
+    try:
+        r = await c.post("/api/devices/1/timezone", data=json.dumps({"timezone": 2}))
+        out = await r.json()
+        assert out["delivered"] == "heartbeat-queue"
+        queued = reg.get(1).command_queue[-1]
+        assert queued["_service_suffix"] == "property/set"
+        # The value MUST be a JSON string, or the firmware's atof() no-ops it.
+        assert queued["params"]["timezone"] == "2"
+        assert isinstance(queued["params"]["timezone"], str)
+    finally:
+        await c.close()
+
+
+async def test_an_impossible_offset_is_refused():
+    reg = DeviceRegistry()
+    reg.get_or_create(petkit_id=1, device_type="t5", serial_number="SN")
+    app, reg, hub = _panel(reg=reg, bridge=None)
+    c = await _mk_client(app)
+    try:
+        for bad in (99, -99, "nonsense", True):
+            r = await c.post("/api/devices/1/timezone", data=json.dumps({"timezone": bad}))
+            assert r.status == 400, f"accepted {bad!r}"
+        assert "timezone" not in reg.get(1).config
     finally:
         await c.close()

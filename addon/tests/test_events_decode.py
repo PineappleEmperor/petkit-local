@@ -235,3 +235,36 @@ def test_direction_does_not_leak_into_other_codes():
     state = {"lightState": {"workProcess": 1}}
     assert decode.event_label("5", {"start_reason": 0, "result": 0}, "t5", state) \
         == "Auto cleaning completed"
+
+
+def test_result_4_is_a_full_bin_not_kitten_mode():
+    """`4` arrives with `err: "full"` and nothing else, on two families.
+
+    It used to render "canceled (kitten mode)" because that slot was borrowed
+    as a lookup constant for `result == 3` + a `kitten` flag. A box that stops
+    because its bin is full is not a box in kitten mode.
+    """
+    text, _ = decode._result_field(4)
+    assert "kitten" not in text
+    assert "full" in text
+
+
+def test_kitten_mode_still_reads_off_result_3():
+    """The case the borrowed slot existed for keeps working, on its own value."""
+    label = decode.event_label(
+        "5", {"start_reason": 2, "result": 3, "kitten": 1}, "t5")
+    assert "kitten" in label
+    assert decode.event_label("5", {"start_reason": 2, "result": 3}, "t5") \
+        .endswith("canceled")
+
+
+def test_a_result_outside_the_cleaning_table_is_not_dressed_up():
+    """`ble_relay_over` sends 1, 2 and 6; `add_water_over` reaches 18.
+
+    None of those mean what the cleaning table says, so an unmapped value has
+    to stay a number rather than borrow a label.
+    """
+    for value in (6, 18):
+        text, grade = decode._result_field(value)
+        assert str(value) in text
+        assert grade == decode.UNKNOWN

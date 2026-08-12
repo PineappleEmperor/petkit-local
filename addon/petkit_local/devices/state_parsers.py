@@ -407,6 +407,14 @@ def _parse_litter_camera(body: dict[str, Any]) -> dict[str, Any]:
         "errorMsg", "rssi", "usedTimes", "totalTime",
         "boxState", "sprayState", "refreshState",
         "cameraStatus", "power",
+        # The waste-BAGGING mechanism, which only the Purobot Ultra has and
+        # which nothing here read until now: a T6 sends `packageState` in all
+        # 3475 reports of one 67-hour capture, alongside these. Published raw
+        # on purpose -- the values observed are -1/1, 0/1 and 0/2, and no
+        # source names what any of them mean, so a label here would be
+        # invented. `ha/entities/sensors.py` publishes them for `t6` only.
+        "packageState", "packState", "baggingState",
+        "sealDoorState", "boxStoreState", "packageCount",
         # The raw reset stamps, not just the countdowns derived from them:
         # `to_device_info` echoes `sprayResetTime` straight back to the device,
         # and `apply_consumable_state` needs to see what the box reported to

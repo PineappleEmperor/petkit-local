@@ -53,7 +53,8 @@ from petkit_local.web.api.ble import (
     api_ble_accessories, api_ble_command, api_ble_delete, api_ble_import, api_ble_poll,
 )
 from petkit_local.web.api.devices import (
-    api_ai_settings, api_capabilities, api_device_detail, api_device_log_settings,
+    api_ai_settings, api_capabilities, api_device_delete, api_device_detail,
+    api_device_log_settings, api_timezone,
     api_devices, api_send_command,
 )
 from petkit_local.web.api.logs import (
@@ -66,8 +67,12 @@ from petkit_local.web.api.pets import (
     api_pet_detail, api_pet_face_detail, api_pet_face_photo, api_pet_faces,
     api_pets_import, api_pets_list_create, api_pets_unbound,
 )
-from petkit_local.web.api.schedules import api_save_schedule
+from petkit_local.web.api.schedules import api_deferred_feed, api_save_schedule
 from petkit_local.web.api.settings import api_blocked, api_info, api_retention, api_settings
+from petkit_local.web.api.sounds import (
+    api_sounds_delete, api_sounds_list, api_sounds_play,
+    api_sounds_select, api_sounds_upload,
+)
 from petkit_local.web.api.talk import api_talk
 from petkit_local.web.api.timeline import api_event_detail, api_timeline
 from petkit_local.web.appkeys import (
@@ -192,18 +197,31 @@ def create_panel_app(registry: DeviceRegistry, ble_registry: BLERegistry | None,
     # --- devices: list, detail, commands ---
     app.router.add_get("/api/devices", api_devices)
     app.router.add_get("/api/devices/{id}", api_device_detail)
+    app.router.add_delete("/api/devices/{id}", api_device_delete)
     app.router.add_post("/api/devices/{id}/command", api_send_command)
     app.router.add_post("/api/devices/{id}/schedule", api_save_schedule)
+    app.router.add_get("/api/devices/{id}/deferred-feed", api_deferred_feed)
+    app.router.add_post("/api/devices/{id}/deferred-feed", api_deferred_feed)
+    app.router.add_delete("/api/devices/{id}/deferred-feed/{feed_id}", api_deferred_feed)
 
     # --- per-device toggles (GET reads, POST writes — same handler) ---
     app.router.add_get("/api/devices/{id}/capabilities", api_capabilities)
     app.router.add_post("/api/devices/{id}/capabilities", api_capabilities)
+    app.router.add_get("/api/devices/{id}/timezone", api_timezone)
+    app.router.add_post("/api/devices/{id}/timezone", api_timezone)
     app.router.add_get("/api/devices/{id}/ai", api_ai_settings)
     app.router.add_post("/api/devices/{id}/ai", api_ai_settings)
     app.router.add_get("/api/devices/{id}/logs", api_device_log_settings)
     app.router.add_post("/api/devices/{id}/logs", api_device_log_settings)
     # Two-way talk: browser mic -> device speaker (needs the `talk` patcher).
     app.router.add_get("/api/devices/{id}/talk", api_talk)
+
+    # --- custom sounds (camera feeders) ---
+    app.router.add_get("/api/devices/{id}/sounds", api_sounds_list)
+    app.router.add_post("/api/devices/{id}/sounds", api_sounds_upload)
+    app.router.add_delete("/api/devices/{id}/sounds/{sound_id}", api_sounds_delete)
+    app.router.add_post("/api/devices/{id}/sounds/{sound_id}/play", api_sounds_play)
+    app.router.add_post("/api/devices/{id}/sounds/{sound_id}/select", api_sounds_select)
 
     # --- BLE accessories. Pairing lives here because it lives in the cloud:
     # the device pulls a list and scans for exactly those MACs, and no firmware

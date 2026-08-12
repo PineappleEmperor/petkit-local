@@ -63,16 +63,24 @@ def test_an_unset_range_restricts_nothing():
             assert times == [[0, 1440]], f"{device_type}/{key} is not all day"
 
 
-def test_the_cleaning_do_not_disturb_is_the_one_that_stays_empty():
+#: The windows that SILENCE a job rather than enable one. An all-day default
+#: here would quietly stop the thing from ever running, which is the opposite
+#: of harmless -- so these are the entries that stay empty.
+SILENCING_RANGES = {"distrubMultiRange", "awDisturbMultiRange", "wlDisturbMultiRange"}
+
+
+def test_only_the_silencing_windows_default_to_empty():
     """Every other default is a window during which something is ACTIVE, so all
-    day means "always" and restricts nothing. This one is a window during which
-    the box must NOT clean, so all day would quietly disable automatic cleaning
-    on every litter box nobody had given a window to."""
+    day means "always" and restricts nothing. A do-not-disturb window is the
+    other way round: all day would disable automatic cleaning on every litter
+    box, and water top-up on every fountain, that nobody had given a window to.
+    """
     from petkit_local.devices.defaults import MULTI_RANGE_DEFAULTS
 
-    assert MULTI_RANGE_DEFAULTS["distrubMultiRange"] == []
     for key, value in MULTI_RANGE_DEFAULTS.items():
-        if key != "distrubMultiRange":
+        if key in SILENCING_RANGES:
+            assert value == [], f"{key} must not decide quiet hours for anyone"
+        else:
             assert value, f"{key} must have an all-day default"
 
     d = Device(device_type="t5", petkit_id=1, serial_number="SN")
@@ -137,13 +145,29 @@ def test_the_editor_and_the_device_see_the_same_values():
         assert target["value"] == served[target["target"]], target["target"]
 
 
-def test_a_fountain_has_no_ranges_to_serve_yet():
-    """A W7H's `ctrl` reads five of these and its app writes them, but the
-    branch that answers with them is PR #18's. Offering an editor for a schedule
-    this add-on cannot answer with is the confusing half of the feature."""
+def test_a_fountain_is_served_the_ranges_its_firmware_reads():
+    """Nine exist in the W7-262863 image and seven are sent.
+
+    Five are confirmed by watching PetKit's own cloud write them to a W7H; the
+    other two default to something that restricts nothing. The two
+    `*AssistMultiRange` fields are held back on purpose -- real fields, but no
+    capture shows a value, and this reply is re-sent on every poll, so an
+    invented window would overwrite the owner's on repeat.
+    """
     d = Device(device_type="w7h", petkit_id=1, serial_number="SN")
-    assert payloads.to_multi_config(d) == {"result": {}}
-    assert defaults.schedule_targets(d) == []
+    served = payloads.to_multi_config(d)["result"]
+    assert set(served) == {
+        "lightMultiRange", "toneMultiRange", "distrubMultiRange",
+        "detectMultiRange", "cameraMultiRange",
+        "awDisturbMultiRange", "wlDisturbMultiRange",
+    }
+    assert "lightAssistMultiRange" not in served
+    assert "wifiLightAssistMultiRange" not in served
+    # The camera-gating field is the object form here too -- W7H has no
+    # `cameraMultiNew` at all, so this is the one that decides.
+    assert isinstance(_decode(payloads.to_multi_config(d), "cameraMultiRange")[0], dict)
+    # And the editor now has something to offer.
+    assert {t["target"] for t in defaults.schedule_targets(d)} == set(served)
 
 
 def test_every_model_offers_only_schedules_it_has():
@@ -344,18 +368,47 @@ async def test_an_unknown_target_is_refused():
         await c.close()
 
 
-async def test_a_feeding_schedule_is_stored_and_not_pushed():
-    """No capture shows the cloud writing one, and `dev_feed_get` serves it —
-    so it is stored and nothing is sent to the device."""
+async def test_a_feeding_schedule_is_stored_and_pushed():
+    """The cloud pushes feed schedules via property.set{feed: "<json>"},
+    confirmed in a D4SH MQTT capture (2026-08-12)."""
     app, reg, bridge = _panel("d4sh")
     c = await _client(app)
     try:
         payload = {"schedule": [{"re": "1,2,3,4,5,6,7", "it": [], "itemJsonString": "[]"}],
                    "nextTick": 0, "latest": []}
         status, out = await _save(c, "feed_schedule", payload)
-        assert status == 200 and out["delivered"] == "local"
-        assert reg.get(1).config["feed_schedule"] == payload
-        assert not bridge.sent
+        assert status == 200
+        # Stored as sent, plus the v:2 stamp that marks it seconds-based
+        # (feed.migrate_minute_schedule).
+        assert reg.get(1).config["feed_schedule"] == {**payload, "v": 2}
+        assert bridge.sent
+        _did, suffix, envelope = bridge.sent[0]
+        assert suffix == "property/set"
+        wire = json.loads(envelope["params"]["feed"])
+        # The wire shape is the cloud's: no itemJsonString in property.set,
+        # and an empty latest carries the cloud's 86340 constant.
+        assert set(wire.keys()) == {"schedule", "nextTick", "latest"}
+        assert all("itemJsonString" not in g for g in wire["schedule"])
+        assert wire["nextTick"] == 86340 and wire["latest"] == []
+    finally:
+        await c.close()
+
+
+async def test_a_meal_id_is_regenerated_when_not_a_string():
+    """The firmware reads `id` with cJSON_GetStringValue — an int id is a NULL
+    pointer and a crash. Anything that is not a non-empty string comes back as
+    the cloud's own `n_<seconds>` scheme."""
+    app, reg, bridge = _panel("d4sh")
+    c = await _client(app)
+    try:
+        payload = {"schedule": [{"re": "1", "it": [
+            {"id": 1, "t": 46560, "a1": 1, "a2": 0},
+            {"t": 50100, "a1": 1, "a2": 0},
+        ]}]}
+        status, _ = await _save(c, "feed_schedule", payload)
+        assert status == 200
+        meals = reg.get(1).config["feed_schedule"]["schedule"][0]["it"]
+        assert [m["id"] for m in meals] == ["n_46560", "n_50100"]
     finally:
         await c.close()
 
@@ -418,14 +471,15 @@ async def test_a_feeding_schedule_is_stored_in_the_shape_the_firmware_parses():
             {"re": "1,2,3,4,5,6,7",
              "it": [{"id": 1, "t": 510, "a1": 1, "a2": 3}]},
         ]})
-        assert status == 200 and out["delivered"] == "local"
+        assert status == 200
 
         group = reg.get(1).config["feed_schedule"]["schedule"][0]
         assert sorted(group["it"][0]) == ["a1", "a2", "id", "t"]
         assert group["it"][0]["t"] == 510  # 08:30, minutes since midnight
-        # Stored and NOT pushed: no capture shows the cloud writing one, and
-        # `dev_feed_get` is where the device reads it on its own clock.
-        assert not bridge.sent
+        assert bridge.sent
+        _did, suffix, envelope = bridge.sent[0]
+        assert suffix == "property/set"
+        assert "feed" in envelope["params"]
     finally:
         await c.close()
 
@@ -465,10 +519,9 @@ async def test_a_feeding_schedule_keeps_the_devices_own_bookkeeping():
     {"schedule": "not a list"},
     [],
     {"schedule": [{"re": "8", "it": []}]},                          # weekdays run 1..7
-    {"schedule": [{"re": "1", "it": [{"id": 1, "t": 1440, "a1": 1}]}]},   # past the day
+    {"schedule": [{"re": "1", "it": [{"id": 1, "t": 86400, "a1": 1}]}]},  # past the day
     {"schedule": [{"re": "1", "it": [{"id": 1, "t": 60, "a1": 256}]}]},   # wraps a byte
     {"schedule": [{"re": "1", "it": [{"id": 1, "t": 60, "a1": -1}]}]},
-    {"schedule": [{"re": "1", "it": [{"t": 60, "a1": 1}]}]},         # no id
 ])
 async def test_a_malformed_feeding_schedule_is_refused(bad):
     app, reg, bridge = _panel("d4sh")

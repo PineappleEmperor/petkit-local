@@ -669,8 +669,11 @@ async function doProvision() {
     // own offset is only the fallback, since the phone provisioning a device is
     // not always in the same timezone as the device.
     //
-    // Only takes effect at provisioning: an already-paired device keeps
-    // whatever it was given (or wasn't) until it is provisioned again.
+    // This is the value the device starts life with. It is not the only way
+    // to set one: a `property.set` carrying `timezone` as a STRING moves the
+    // clock on a device that is already paired (Devices -> Timezone), which
+    // is how a box provisioned before this field was sent gets its watermarks
+    // corrected without being provisioned again.
     const tzEl = document.getElementById('p-tz');
     const timezone =
       tzEl && tzEl.value !== '' ? Number(tzEl.value) : -new Date().getTimezoneOffset() / 60;

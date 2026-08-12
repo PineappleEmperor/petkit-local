@@ -372,11 +372,8 @@ def test_the_feeder_fault_block_reaches_both_paths():
     """`_extract_error_flags` was wired into the MQTT path only, so the Error
     sensor said whatever the last transport to arrive had to say."""
     faulted = {**D4SH_STATE, "err": {**D4SH_STATE["err"], "blk_f": 1}}
-    assert parse_state_report("d4sh", faulted)["errorMsg"] == "blk_f"
-    assert normalize_property_params("d4sh", faulted)["errorMsg"] == "blk_f"
-    # No feeder table exists, so the raw firmware name is what shows. Naming
-    # these bits would be a guess: not one of them has a descriptive string
-    # anywhere in the image.
+    assert parse_state_report("d4sh", faulted)["errorMsg"] == "Food outlet blocked"
+    assert normalize_property_params("d4sh", faulted)["errorMsg"] == "Food outlet blocked"
     assert parse_state_report("d4sh", D4SH_STATE)["errorMsg"] == ""
 
 

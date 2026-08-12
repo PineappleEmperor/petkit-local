@@ -13,6 +13,7 @@ import os
 import ssl
 from collections.abc import Coroutine
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from aiohttp import web
 
@@ -178,7 +179,7 @@ async def start_background(services: Services, app_instance: web.Application) ->
     os.makedirs(device_log_root, exist_ok=True)
     app_config["device_log_root"] = device_log_root
     bucket_app = create_bucket_app(raw_root, hub=hub, log_root=device_log_root,
-                                   registry=registry)
+                                   registry=registry, data_dir=config.data_dir)
     bucket_runner = web.AppRunner(bucket_app)
     await bucket_runner.setup()
     # Bucket needs TLS: cloud parses the PAR URL as https:// and crashes
@@ -192,7 +193,16 @@ async def start_background(services: Services, app_instance: web.Application) ->
     bkt_ctx = None
     try:
         bkt_key = config.mqtt_key or f"{config.data_dir}/certs/broker.key"
-        if ensure_self_signed(cert_path, bkt_key):
+        # The device uploads to whatever `bucket_endpoint` names, and unlike
+        # MQTT -- where the patched mbedtls skips verification -- the uploader
+        # checks the certificate against the address it dialled. So that host
+        # has to be in the SAN, and it is not necessarily the host's own IP
+        # (`_get_host_ip`): those agree on a plain HA OS box and part company
+        # behind a reverse proxy, on a multi-homed host, or when the operator
+        # configured a name.
+        bucket_host = urlparse(config.bucket_endpoint or config.api_url).hostname
+        if ensure_self_signed(cert_path, bkt_key,
+                              extra_hosts=[bucket_host] if bucket_host else None):
             bkt_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             bkt_ctx.load_cert_chain(cert_path, bkt_key)
     except Exception as e:

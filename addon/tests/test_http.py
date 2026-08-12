@@ -190,7 +190,8 @@ async def test_the_same_device_then_gets_its_mqtt_credentials():
                               data="id=400090690&sn=20241223G11497", headers=FORM)
         result = (await r.json())["result"]
         assert result, "no credentials at all"
-        assert result.get("deviceSecret") or result.get("productKey")
+        ali = result.get("ali", result)
+        assert ali.get("deviceSecret") or ali.get("productKey")
     finally:
         await client.close()
 
@@ -421,20 +422,21 @@ async def test_heartbeat_still_delivers_commands_while_clearing_the_flag():
         await client.close()
 
 
-async def test_esp32_iot_device_info_is_flat():
+async def test_all_iot_device_info_endpoints_return_ali_wrapped():
+    """The cloud returns ``{result: {ali: {...}}}`` for every device, including
+    those calling ``dev_iot_device_info`` (confirmed on a D4SH capture). The
+    previous flat format was an assumption from localkit that no capture
+    supported."""
     reg = DeviceRegistry()
     client = await _client(reg)
     try:
         await client.post("/6/t4/dev_signup", headers=HDR)
-        # ESP32 endpoint -> flat block, no `ali` wrapper
-        r = await client.post("/6/t4/dev_iot_device_info", headers=HDR)
-        res = (await r.json())["result"]
-        assert "ali" not in res
-        assert res["iotPlatform"] == "ALI"
-        assert res["productKey"] and res["deviceSecret"] and res["mqttHost"]
-        # Ingenic endpoint -> ali-wrapped
-        r2 = await client.post("/6/t4/dev_only_iot_device_info_v2", headers=HDR)
-        assert "ali" in (await r2.json())["result"]
+        for ep in ("dev_iot_device_info", "dev_only_iot_device_info_v2"):
+            r = await client.post(f"/6/t4/{ep}", headers=HDR)
+            res = (await r.json())["result"]
+            assert "ali" in res, f"{ep} should return ali-wrapped"
+            ali = res["ali"]
+            assert ali["productKey"] and ali["deviceSecret"] and ali["mqttHost"]
     finally:
         await client.close()
 
@@ -764,5 +766,88 @@ async def test_index_lists_devices():
         data = await r.json()
         assert data["service"] == "petkit-local"
         assert any(d["id"] == 100 for d in data["devices"])
+    finally:
+        await client.close()
+
+
+#: The real query a second-hand D4SH sent: no `id`, and an EMPTY `sn`. It had
+#: never been registered with PetKit and could not reach it to be, so it had no
+#: id to repeat back at anyone.
+D4SH_NO_IDENTITY = (
+    "mac=4c24ce5170a3&sn=&bt_mac=a4c1381c82a7&hardware=1"
+    "&firmware=248&locale=Europe/Warsaw&timezone=2.0&p2pType=2"
+)
+
+
+async def test_a_device_that_has_never_had_an_id_is_given_one():
+    """A device gets its id from PetKit at first registration and repeats it
+    forever. One that never reached PetKit has nothing to repeat — and the
+    "broken" units people buy second-hand are exactly that. Refusing them left
+    the local cloud unable to onboard the devices it exists for."""
+    reg = DeviceRegistry()
+    client = await _client(reg)
+    try:
+        r = await client.get("/6/d4sh/dev_signup?" + D4SH_NO_IDENTITY)
+        assert r.status == 200
+        body = (await r.json())["result"]
+        assert body["id"] > 0
+        dev = reg.get(body["id"])
+        assert dev is not None and dev.device_type == "d4sh"
+        assert dev.mac == "4c24ce5170a3"
+        assert dev.config.get("locally_assigned_id") is True
+        # A blank serial must not burn itself into the MQTT name, which is
+        # minted once and never repaired.
+        assert dev.mqtt_device_name == f"d_d4sh_{body['id']}"
+    finally:
+        await client.close()
+
+
+async def test_a_minted_id_is_the_same_one_every_time():
+    """Signup is retried. An allocator would mint a new device per attempt and
+    fill the registry with duplicates of one feeder, so the id is derived from
+    the MAC and survives both a restart and a lost devices.json."""
+    first = DeviceRegistry()
+    c1 = await _client(first)
+    try:
+        a = (await (await c1.get("/6/d4sh/dev_signup?" + D4SH_NO_IDENTITY)).json())["result"]["id"]
+        b = (await (await c1.get("/6/d4sh/dev_signup?" + D4SH_NO_IDENTITY)).json())["result"]["id"]
+    finally:
+        await c1.close()
+    fresh = DeviceRegistry()
+    c2 = await _client(fresh)
+    try:
+        c = (await (await c2.get("/6/d4sh/dev_signup?" + D4SH_NO_IDENTITY)).json())["result"]["id"]
+    finally:
+        await c2.close()
+    assert a == b == c
+    assert len(first.all()) == 1, "a retry registered a second device"
+    # PetKit's own ids are nine digits opening with 3; ours open with 4, so one
+    # can never be mistaken for the other.
+    assert 400_000_000 <= a < 500_000_000
+
+
+async def test_two_devices_with_no_id_do_not_collide():
+    reg = DeviceRegistry()
+    client = await _client(reg)
+    try:
+        one = (await (await client.get("/6/d4sh/dev_signup?" + D4SH_NO_IDENTITY)).json())["result"]
+        other = (await (await client.get(
+            "/6/d4sh/dev_signup?" + D4SH_NO_IDENTITY.replace("4c24ce5170a3", "4c24ce5170ff"),
+        )).json())["result"]
+        assert one["id"] != other["id"]
+        assert len(reg.all()) == 2
+    finally:
+        await client.close()
+
+
+async def test_a_device_offering_nothing_stable_is_still_refused():
+    """No id and no MAC leaves nothing to key an entry on that would survive
+    the next request, so inventing one would just make a new device each time."""
+    reg = DeviceRegistry()
+    client = await _client(reg)
+    try:
+        r = await client.get("/6/d4sh/dev_signup?firmware=248")
+        assert r.status == 400
+        assert not reg.all()
     finally:
         await client.close()
