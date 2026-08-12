@@ -264,6 +264,7 @@ onToggle('dev-panel', el => {
 onToggle('dev-sec', el => {
   setSecOpen(Number(el.dataset.id), el.dataset.sec, el.open);
   if (el.dataset.sec === 'sounds' && el.open) loadSounds(el.dataset.id);
+  if (el.dataset.sec === 'deferred' && el.open) loadDeferred(el.dataset.id);
 });
 
 // One request per device: the sidecars the detail view needs are folded into
@@ -391,6 +392,64 @@ onAction('delete-device', async el => {
   const r = await api('devices/' + encodeURIComponent(el.dataset.id), { method: 'DELETE' });
   toast(r.ok ? 'Device removed' : 'Error: ' + (r.error || 'failed'));
   loadDevices();
+});
+
+// --- deferred feeds ---
+
+async function loadDeferred(deviceId) {
+  const el = document.getElementById('deferred-' + deviceId);
+  if (!el) return;
+  const r = await api('devices/' + encodeURIComponent(deviceId) + '/deferred-feed');
+  const items = r.deferred || [];
+  if (!items.length) {
+    el.innerHTML = '<p class="sub">No scheduled feeds.</p>';
+    return;
+  }
+  el.innerHTML = items
+    .map(d => {
+      const dt = new Date(d.fire_at * 1000);
+      const when =
+        dt.toLocaleDateString() +
+        ' ' +
+        dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return `<div class="row" style="align-items:center;gap:8px;margin:4px 0">
+      <span style="flex:1">${esc(when)} — H1: ${d.a1}, H2: ${d.a2}</span>
+      <button class="act mini-ex danger" data-action="delete-deferred" data-id="${esc(String(deviceId))}" data-fid="${esc(d.id)}">Delete</button>
+    </div>`;
+    })
+    .join('');
+}
+
+onAction('add-deferred', async el => {
+  const form = document.getElementById('deferred-form-' + el.dataset.id);
+  if (!form) return;
+  const date = form.querySelector('[data-field="date"]').value;
+  const time = form.querySelector('[data-field="time"]').value;
+  const a1 = parseInt(form.querySelector('[data-field="a1"]').value) || 0;
+  const a2 = parseInt(form.querySelector('[data-field="a2"]').value) || 0;
+  if (!date || !time) {
+    toast('Pick a date and time');
+    return;
+  }
+  const r = await api('devices/' + encodeURIComponent(el.dataset.id) + '/deferred-feed', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ date, time, a1, a2 }),
+  });
+  toast(r.ok ? 'Feed scheduled' : 'Error: ' + (r.error || 'failed'));
+  loadDeferred(el.dataset.id);
+});
+
+onAction('delete-deferred', async el => {
+  const r = await api(
+    'devices/' +
+      encodeURIComponent(el.dataset.id) +
+      '/deferred-feed/' +
+      encodeURIComponent(el.dataset.fid),
+    { method: 'DELETE' },
+  );
+  toast(r.ok ? 'Removed' : 'Error: ' + (r.error || 'failed'));
+  loadDeferred(el.dataset.id);
 });
 
 // --- custom sounds ---
@@ -771,6 +830,22 @@ function renderPanelBody(d) {
         e => `<tr><td>${esc(e.name)}</td><td>${esc(e.component)}</td><td>${esc(e.key)}</td></tr>`,
       )
       .join('')}</tbody></table></div>`
+      : ''
+  }
+
+  ${
+    d.is_feeder
+      ? `<div class="card"><details class="adv" data-toggle="dev-sec" data-id="${esc(d.id)}" data-sec="deferred" ${secOpen(d.id, 'deferred', false) ? 'open' : ''}><summary>Schedule a Feed</summary>
+    <div id="deferred-${esc(d.id)}"><p class="sub">Loading...</p></div>
+    <div style="margin-top:10px" class="row" id="deferred-form-${esc(d.id)}">
+      <input type="date" data-field="date" style="flex:1">
+      <input type="time" data-field="time" style="flex:1">
+      <input type="number" data-field="a1" min="0" max="20" value="1" style="width:60px" placeholder="H1">
+      <input type="number" data-field="a2" min="0" max="20" value="0" style="width:60px" placeholder="H2">
+      <button class="act" data-action="add-deferred" data-id="${esc(d.id)}">Add</button>
+    </div>
+    <p class="sub" style="margin-top:4px">Date, time, portions hopper 1, portions hopper 2.</p>
+  </details></div>`
       : ''
   }
 

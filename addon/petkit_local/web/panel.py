@@ -67,7 +67,7 @@ from petkit_local.web.api.pets import (
     api_pet_detail, api_pet_face_detail, api_pet_face_photo, api_pet_faces,
     api_pets_import, api_pets_list_create, api_pets_unbound,
 )
-from petkit_local.web.api.schedules import api_save_schedule
+from petkit_local.web.api.schedules import api_deferred_feed, api_save_schedule
 from petkit_local.web.api.settings import api_blocked, api_info, api_retention, api_settings
 from petkit_local.web.api.sounds import (
     api_sounds_delete, api_sounds_list, api_sounds_play,
@@ -199,6 +199,9 @@ def create_panel_app(registry: DeviceRegistry, ble_registry: BLERegistry | None,
     app.router.add_delete("/api/devices/{id}", api_device_delete)
     app.router.add_post("/api/devices/{id}/command", api_send_command)
     app.router.add_post("/api/devices/{id}/schedule", api_save_schedule)
+    app.router.add_get("/api/devices/{id}/deferred-feed", api_deferred_feed)
+    app.router.add_post("/api/devices/{id}/deferred-feed", api_deferred_feed)
+    app.router.add_delete("/api/devices/{id}/deferred-feed/{feed_id}", api_deferred_feed)
 
     # --- per-device toggles (GET reads, POST writes — same handler) ---
     app.router.add_get("/api/devices/{id}/capabilities", api_capabilities)

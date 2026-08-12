@@ -7,6 +7,7 @@ the odd-looking values are the ones that came out of the real app.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import time
 from typing import Any
@@ -253,3 +254,70 @@ async def api_save_schedule(request: web.Request) -> web.Response:
 
     return await _deliver(hub, bridge, d, PROPERTY_SET_SUFFIX,
                           make_mqtt_property_set(params))
+
+
+async def api_deferred_feed(request: web.Request) -> web.Response:
+    """Add or list deferred (one-off) feeds for a feeder.
+
+    POST ``{"date": "2026-08-13", "time": "17:05", "a1": 0, "a2": 1}``
+    adds a deferred feed. GET lists pending ones. DELETE with ``{sound_id}``
+    in path removes one.
+
+    The device picks this up on its next ``dev_feed_get`` poll, which the
+    heartbeat ``feed_get:1`` command triggers immediately.
+    """
+    reg = request.app["registry"]
+    hub = request.app["hub"]
+    bridge = request.app["bridge"]
+    d = _device_or_404(request)
+
+    feed = d.config.setdefault("feed_schedule", {
+        "schedule": [{"re": "1,2,3,4,5,6,7", "it": [], "itemJsonString": "[]"}],
+    })
+    deferred = feed.setdefault("deferred", [])
+
+    if request.method == "GET":
+        return web.json_response({"deferred": deferred})
+
+    if request.method == "DELETE":
+        try:
+            feed_id = request.match_info["feed_id"]
+        except KeyError:
+            return web.json_response({"error": "missing feed_id"}, status=400)
+        feed["deferred"] = [d2 for d2 in deferred if d2.get("id") != feed_id]
+        reg.save()
+        _push_feed_get(d, hub, bridge, feed)
+        return web.json_response({"ok": True})
+
+    body = await _json_body(request)
+    date_str = body.get("date", "")
+    time_str = body.get("time", "")
+    a1 = to_int(body.get("a1"), 0)
+    a2 = to_int(body.get("a2"), 0)
+
+    try:
+        dt = datetime.datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+        dt = dt.replace(tzinfo=datetime.timezone(
+            datetime.timedelta(hours=d.timezone_offset)))
+    except (ValueError, TypeError):
+        return web.json_response({"error": "bad date/time"}, status=400)
+
+    fire_at = dt.timestamp()
+    if fire_at <= time.time():
+        return web.json_response({"error": "time is in the past"}, status=400)
+
+    secs_since_midnight = dt.hour * 3600 + dt.minute * 60 + dt.second
+    feed_id = f"d_{dt.strftime('%Y%m%d')}_{secs_since_midnight}"
+
+    entry = {"id": feed_id, "a1": a1, "a2": a2, "fire_at": fire_at}
+    deferred.append(entry)
+    reg.save()
+
+    _push_feed_get(d, hub, bridge, feed)
+    return web.json_response({"ok": True, "feed": entry})
+
+
+def _push_feed_get(d, hub, bridge, feed):
+    """Queue feed_get:1 heartbeat + MQTT property.set{feed}."""
+    d.command_queue.append({"msgType": 1, "payload": {"feed_get": "1"},
+                            "timestamp": int(time.time())})
