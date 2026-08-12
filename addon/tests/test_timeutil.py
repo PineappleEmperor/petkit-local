@@ -12,7 +12,8 @@ import time
 import pytest
 
 from petkit_local.utils.timeutil import (
-    local_day_bounds, local_day_start, local_offset_hours, parse_date,
+    local_day_bounds, local_day_start, local_offset_hours,
+    offset_hours_for_locale, parse_date,
 )
 
 DAY = 86400
@@ -121,3 +122,26 @@ def test_local_day_start_matches_the_bounds(tz):
 def test_offset_hours_is_what_we_tell_a_device(tz, zone, expected):
     tz(zone)
     assert local_offset_hours(1785024000.0) == expected
+
+
+# A summer instant (2026-07-26) so DST zones are in their summer offset.
+_SUMMER = 1785024000.0
+
+
+@pytest.mark.parametrize("locale,expected", [
+    ("Europe/Warsaw", 2.0),          # CEST
+    ("America/New_York", -4.0),      # EDT, and NOT the -5.0 a frozen number holds
+    ("Asia/Kolkata", 5.5),           # half-hour zone
+])
+def test_locale_offset_is_dst_correct(locale, expected):
+    """The whole point of preferring the zone NAME over a stored number: it is
+    right in summer too, which a provisioning-time offset is not."""
+    assert offset_hours_for_locale(locale, _SUMMER) == expected
+
+
+@pytest.mark.parametrize("bad", [None, "", "auto", "UTC", "Warsaw", 2.0, "Not/AZone"])
+def test_unusable_locale_returns_none_for_fallback(bad):
+    """Anything that is not a resolvable IANA zone name yields None so the
+    caller drops to the numeric sources. `UTC` has no slash and is handled by
+    the numeric path's 0.0 anyway."""
+    assert offset_hours_for_locale(bad, _SUMMER) is None

@@ -25,7 +25,7 @@ from petkit_local.utils.const import (
 )
 from petkit_local.utils.coerce import to_bool, to_float
 from petkit_local.utils.crypto import generate_device_secret, generate_product_key
-from petkit_local.utils.timeutil import local_offset_hours
+from petkit_local.utils.timeutil import local_offset_hours, offset_hours_for_locale
 
 
 class Refused(ValueError):
@@ -307,19 +307,28 @@ class Device:
     def timezone_offset(self) -> float:
         """Hours east of UTC to report to the device, e.g. 2.0 for CEST.
 
-        Derived from the container's timezone, which the Supervisor sets from
-        Home Assistant's own configuration, and overridable per device via
-        `config["timezone"]` for an install whose box lives in another zone.
+        Four sources, most specific first:
 
-        Three sources, most specific first: the manual override, then whatever
-        the device itself reported at signup, then the container's clock. The
-        middle one matters because the device is the authority on where IT is —
-        it was handed that offset over BLE at provisioning and burns it into its
-        video watermarks — so answering with the server's instead told a device
-        in UTC-4 that it was at UTC+2.
+        1. the manual override (`config["timezone"]`), for an install whose box
+           lives in a different zone than its Home Assistant;
+        2. the offset derived from the zone NAME the device reports
+           (`config["locale"]`, e.g. `Europe/Warsaw`) — DST-correct and the
+           device's own statement of where it is;
+        3. the numeric offset the device reported at signup
+           (`reported_timezone`), for a device that sent no usable locale;
+        4. the container's clock, which the Supervisor sets from Home Assistant.
 
-        A hardcoded constant is not an option here: any fixed offset is wrong
-        for half the year anywhere that observes DST.
+        The device is the authority on where IT is — it was handed a zone over
+        BLE at provisioning and burns it into its video watermarks — so the two
+        device-sourced values (2, 3) sit above the server's. But the NAME wins
+        over the number, because a device that only ever got a locale and never
+        a numeric offset reports that offset as 0: a box plainly in
+        `Europe/Warsaw` telling us it is in UTC, which then had us serve UTC
+        back and its scheduled feeds fire two hours late. The name it also sent
+        is unambiguous and recovers the real offset. A hardcoded constant is not
+        an option: any fixed offset is wrong for half the year under DST — which
+        is the same reason the name beats the frozen number even when both are
+        present.
 
         Answering this correctly does not by itself fix the device's video
         watermarks — the firmware does not take its clock from this response.
@@ -331,6 +340,9 @@ class Device:
         override = to_float(self.config.get("timezone"), None)
         if override is not None:
             return override
+        from_locale = offset_hours_for_locale(self.config.get("locale"))
+        if from_locale is not None:
+            return from_locale
         reported = to_float(self.config.get("reported_timezone"), None)
         if reported is not None:
             return reported

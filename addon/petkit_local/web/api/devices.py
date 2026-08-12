@@ -26,6 +26,7 @@ from petkit_local.ha.commands import (
 from petkit_local.media.go2rtc import stream_urls_with_rtsp
 from petkit_local.mqtt.broker import delivery_view
 from petkit_local.utils.coerce import to_float
+from petkit_local.utils.timeutil import offset_hours_for_locale
 from petkit_local.utils.const import device_display_name
 from petkit_local.utils.dicts import dig_path
 from petkit_local.web.api._common import (
@@ -153,18 +154,22 @@ def _capabilities_view(d: Device) -> dict[str, Any]:
 def _timezone_view(d: Device) -> dict[str, Any]:
     """The effective UTC offset and each source that could have supplied it.
 
-    All three are shown because an effective `0.0` otherwise gives no clue
-    whether UTC was chosen or merely inherited — and a device provisioned
-    before the BLE payload carried a timezone reports exactly that.
+    All are shown because an effective `0.0` otherwise gives no clue whether UTC
+    was chosen or merely inherited — and a device provisioned before the BLE
+    payload carried a timezone reports exactly that. `source` names which rung of
+    `Device.timezone_offset` actually won, so `locale` here means the offset was
+    recovered from the zone name the device sent, not from the number it did.
     """
     override = to_float(d.config.get("timezone"), None)
     reported = to_float(d.config.get("reported_timezone"), None)
+    from_locale = offset_hours_for_locale(d.config.get("locale"))
     return {
         "effective": d.timezone_offset,
         "override": override,
         "reported": reported,
         "locale": d.config.get("locale", ""),
         "source": "override" if override is not None
+        else "locale" if from_locale is not None
         else "device" if reported is not None else "server",
     }
 
@@ -383,17 +388,32 @@ async def api_timezone(request: web.Request) -> web.Response:
         d.config["timezone"] = value
     reg.save()
 
-    delivered = "next-device-info"
+    # The runtime clock only moves for a `property.set{timezone}` whose value is
+    # a JSON STRING (`f"{...:g}"` keeps it one); `dev_device_info` carries the
+    # number as a fallback for a device that has not yet been pushed. Deliver by
+    # whichever transport is live, and — crucially — fall back to the heartbeat
+    # queue for a device on HTTP. It used to publish only over MQTT, so for a
+    # feeder that never reaches the broker the push was a silent no-op: it stayed
+    # on whatever it reported at signup (UTC for a box given only a locale) and
+    # fired its scheduled meals two hours late.
+    hub = request.app["hub"]
     bridge = request.app.get("bridge")
-    if d.mqtt_connected and bridge is not None and getattr(bridge, "_client", None):
-        envelope = make_mqtt_property_set({"timezone": f"{d.timezone_offset:g}"})
+    envelope = make_mqtt_property_set({"timezone": f"{d.timezone_offset:g}"})
+    mqtt_live = (d.mqtt_connected and bridge is not None
+                 and getattr(bridge, "_client", None))
+    delivered = "mqtt"
+    if mqtt_live:
         try:
             await bridge.publish_to_device(d, PROPERTY_SET_SUFFIX, envelope)
-            delivered = "mqtt"
         except Exception as exc:  # noqa: BLE001 - transport failure is not a rejection
-            # The stored value is authoritative either way; the device picks it
-            # up from `dev_device_info` if the publish did not land.
             log.warning("timezone push failed for device %d: %s", d.petkit_id, exc)
+            mqtt_live = False
+    if not mqtt_live:
+        envelope["_service_suffix"] = PROPERTY_SET_SUFFIX
+        d.command_queue.append(envelope)
+        delivered = "heartbeat-queue"
+    hub.record_command(d.petkit_id, delivered,
+                       f"{PROPERTY_SET_SUFFIX} timezone={d.timezone_offset:g}")
 
     return web.json_response({"ok": True, "delivered": delivered, **_timezone_view(d)})
 

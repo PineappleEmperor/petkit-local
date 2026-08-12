@@ -1741,6 +1741,50 @@ async def test_clearing_the_timezone_override_falls_back_to_what_the_device_said
         await c.close()
 
 
+async def test_a_zone_name_beats_the_zero_a_device_reports():
+    """The D4SH bug: a feeder given only a locale over BLE reports its numeric
+    offset as 0, so a box plainly in Europe/Warsaw told us it was in UTC and had
+    UTC served back — its scheduled feeds firing two hours late. The zone name it
+    ALSO reported is unambiguous and wins."""
+    reg = DeviceRegistry()
+    reg.get_or_create(petkit_id=1, device_type="d4sh", serial_number="SN")
+    d = reg.get(1)
+    d.config["reported_timezone"] = 0.0
+    d.config["locale"] = "Europe/Warsaw"
+    app, reg, hub = _panel(reg=reg, bridge=None)
+    c = await _mk_client(app)
+    try:
+        out = await (await c.get("/api/devices/1/timezone")).json()
+        assert out["effective"] in (1.0, 2.0)   # CET/CEST, never the reported 0.0
+        assert out["source"] == "locale"
+        assert out["reported"] == 0.0
+    finally:
+        await c.close()
+
+
+async def test_timezone_push_falls_back_to_the_heartbeat_queue_on_http():
+    """A feeder on HTTP has no broker session, so the push MUST queue for the
+    next heartbeat. It used to publish over MQTT only, which is why the timezone
+    never reached this exact device and the fix above could not take effect."""
+    reg = DeviceRegistry()
+    reg.get_or_create(petkit_id=1, device_type="d4sh", serial_number="SN")
+    reg.get(1).config["locale"] = "Europe/Warsaw"
+    reg.get(1).mqtt_connected = False
+    app, reg, hub = _panel(reg=reg, bridge=FakeBridge(connected=False))
+    c = await _mk_client(app)
+    try:
+        r = await c.post("/api/devices/1/timezone", data=json.dumps({"timezone": 2}))
+        out = await r.json()
+        assert out["delivered"] == "heartbeat-queue"
+        queued = reg.get(1).command_queue[-1]
+        assert queued["_service_suffix"] == "property/set"
+        # The value MUST be a JSON string, or the firmware's atof() no-ops it.
+        assert queued["params"]["timezone"] == "2"
+        assert isinstance(queued["params"]["timezone"], str)
+    finally:
+        await c.close()
+
+
 async def test_an_impossible_offset_is_refused():
     reg = DeviceRegistry()
     reg.get_or_create(petkit_id=1, device_type="t5", serial_number="SN")

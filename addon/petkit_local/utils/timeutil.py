@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import time
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 #: The wire format the panel's date picker and `?date=` parameter both use.
 DATE_FORMAT = "%Y-%m-%d"
@@ -50,6 +51,35 @@ def local_offset_hours(when: float | None = None) -> float:
     moment = datetime.fromtimestamp(when) if when is not None else datetime.now()
     offset = moment.astimezone().utcoffset()
     return offset.total_seconds() / 3600 if offset is not None else 0.0
+
+
+def offset_hours_for_locale(locale: str | None,
+                            when: float | None = None) -> float | None:
+    """Current UTC offset in hours for an IANA zone name, or None.
+
+    A device reports its own zone as a NAME (`locale: "Europe/Warsaw"`), and a
+    name is a better answer than a number for the `timezone` field two ways: it
+    is unambiguous, and — unlike an offset frozen at provisioning — it moves
+    with DST, so it is right in both halves of the year. A device that only ever
+    got a locale and never a numeric offset reports the offset as 0, which is
+    how a box plainly in `Europe/Warsaw` ends up telling us it is in UTC; this
+    recovers the real offset from the name it did send.
+
+    Returns None for an absent, non-string, or unknown zone (and for a bare name
+    with no `/`, which no real zone this matters for lacks — `UTC` included,
+    whose 0 the numeric path already yields) so the caller can fall back.
+    """
+    if not isinstance(locale, str) or "/" not in locale:
+        return None
+    try:
+        tz = ZoneInfo(locale)
+    except (ZoneInfoNotFoundError, ValueError):
+        # Unknown zone, or a name the OS tz database does not carry.
+        return None
+    moment = datetime.fromtimestamp(when, tz) if when is not None \
+        else datetime.now(tz)
+    offset = moment.utcoffset()
+    return offset.total_seconds() / 3600 if offset is not None else None
 
 
 def parse_date(date_str: str | None) -> date | None:
