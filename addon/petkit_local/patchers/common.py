@@ -510,14 +510,53 @@ BIND_MOUNT_TEMPLATES = {
     # ssh: no bind-mount needed (dropbear is not replacing a stock binary)
 }
 
+#: Two-way talk (intercom) audio sink. The panel's `/api/devices/{id}/talk`
+#: WebSocket transcodes the browser mic to 16 kHz mono ADTS-AAC and streams it
+#: to this TCP port on the device; the sink script below feeds it to the
+#: firmware's own `pktool play_aac`, which owns the IMP speaker path. See
+#: patchers/talk.py.
+TALK_TCP_PORT = 9010
+#: The sink script is installed ONCE into the patch store (persistent, like
+#: dropbear) — so `talk` declares it in `files` and removal deletes it. Nothing
+#: is written to /tmp at boot; only the per-connection FIFO the script makes at
+#: runtime is ephemeral (named by the handler's PID).
+TALK_SINK_NAME = "pktalk_sink.sh"
+#: Body of that sink script. `nc -e /bin/sh <this>` runs it once per connection:
+#: it makes a private FIFO, starts `pktool play_aac` reading it, and copies the
+#: socket into the FIFO until the client hangs up. `$$` is the running sh's PID,
+#: so concurrent connections never collide on the pipe name.
+TALK_SINK_SCRIPT = (
+    "#!/bin/sh\n"
+    "F=/tmp/pktalk.$$\n"
+    "rm -f $F; mknod $F p\n"
+    "LD_LIBRARY_PATH=/syslib/lib:/app/lib:/system/lib:/usr/lib:/lib "
+    "/app/bin/pktool play_aac $F &\n"
+    "cat > $F\n"
+    "rm -f $F\n"
+)
+
 # Pre-init commands (run BEFORE stock app_init.sh is sourced).
-# SSH needs this — dropbear should be up even if stock init fails.
+# SSH needs this — dropbear should be up even if stock init fails. Talk starts
+# its nc listener here too, and that is fine despite there being no post-init
+# phase: the listener only needs to be LISTENING at boot; the speaker path
+# (pktool → media) is touched lazily, once per talk connection, long after stock
+# init has started media.
 PRE_INIT_BLOCKS = {
     "ssh": (
         "# Persistent SSH (dropbear on port 22)\n"
         "mkdir -p /tmp/.ssh\n"
         "cp {store}/authorized_keys /tmp/.ssh/authorized_keys\n"
         "{store}/dropbear -r {store}/dbkey_ecdsa -p 22 &\n"
+    ),
+    # The sink script is installed once into {store} at apply time (see
+    # TALK_SINK_NAME); this block only starts the listener that runs it — it
+    # writes nothing at boot. {store} is filled by generate_app_init_wrapper.
+    "talk": (
+        "# Two-way talk: a TCP audio sink. The add-on streams the browser mic\n"
+        f"# to TCP {TALK_TCP_PORT}; the sink script (installed in the patch\n"
+        "# store) hands it to pktool play_aac -> media -> speaker.\n"
+        f"( while true; do nc -l -p {TALK_TCP_PORT} -e /bin/sh {{store}}/{TALK_SINK_NAME}; "
+        "sleep 1; done ) &\n"
     ),
 }
 
@@ -535,8 +574,8 @@ def generate_app_init_wrapper(active_patchers: set[str],
     lines = [WRAPPER_HEADER_TEMPLATE.format(
         wrapper=app_init_wrapper_path(device))]
     store = patch_storage_dir(device)
-    # Pre-init: things that must run before stock init (SSH, etc.)
-    for pid in ("ssh",):
+    # Pre-init: things that must run before stock init (SSH, the talk sink).
+    for pid in ("ssh", "talk"):
         if pid in active_patchers and pid in PRE_INIT_BLOCKS:
             lines.append(PRE_INIT_BLOCKS[pid].format(store=store))
     for pid in ("mqtt", "cloud", "cacert", "camera"):

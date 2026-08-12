@@ -24,10 +24,11 @@ from petkit_local.patchers.cacert import (
 from petkit_local.patchers.camera import PATCHER_INFO as CAMERA_PATCHER
 from petkit_local.patchers.cloud import PATCHER_INFO as CLOUD_PATCHER, patch_cloud
 from petkit_local.patchers.common import (
-    DEVICE_HTTPD_PORT, app_init_wrapper_path, build_wrapper_remove_cmd,
-    cleanup_staged, detect_patch_storage_dir, download_from_device,
-    ensure_space_for, generate_app_init_wrapper, md5hex, patched_file_path,
-    patcher_device_files, send_run_cmd, stage_file, wait_for_heartbeat,
+    DEVICE_HTTPD_PORT, TALK_SINK_NAME, TALK_SINK_SCRIPT, app_init_wrapper_path,
+    build_wrapper_remove_cmd, cleanup_staged, detect_patch_storage_dir,
+    download_from_device, ensure_space_for, generate_app_init_wrapper, md5hex,
+    patched_file_path, patcher_device_files, send_run_cmd, stage_file,
+    wait_for_heartbeat,
 )
 from petkit_local.patchers.mqtt import PATCHER_INFO as MQTT_PATCHER, patch_ctrl
 from petkit_local.patchers.ssh import (
@@ -36,6 +37,7 @@ from petkit_local.patchers.ssh import (
     ARCH_TO_BINARY as SSH_ARCH_TO_BINARY,
     DBKEY_RESERVE_BYTES, dropbear_path_for,
 )
+from petkit_local.patchers.talk import PATCHER_INFO as TALK_PATCHER
 from petkit_local.patchers.verify import assert_download_plausible, elf_arch
 from petkit_local.web.api._common import _device_or_404, _json_body
 
@@ -53,7 +55,7 @@ log = logging.getLogger(__name__)
 _PATCHER_LOCKS: dict[int, asyncio.Lock] = {}
 
 ALL_PATCHERS: dict[str, dict[str, Any]] = {
-    p["id"]: p for p in [MQTT_PATCHER, CLOUD_PATCHER, CACERT_PATCHER, CAMERA_PATCHER, SSH_PATCHER]
+    p["id"]: p for p in [MQTT_PATCHER, CLOUD_PATCHER, CACERT_PATCHER, CAMERA_PATCHER, SSH_PATCHER, TALK_PATCHER]
 }
 
 
@@ -337,6 +339,33 @@ async def _patcher_apply(d: Device, patcher_id: str, device_ip: str, download_ba
         cleanup_staged(bin_name, did)
         cleanup_staged(AUTHKEYS_STAGED_NAME, did)
         hub.publish("patcher", did, f"{P} dropbear installed, SSH should be reachable now")
+
+    elif patcher_id == "talk":
+        # Nothing to download or patch — the sink is a small stock-shell script
+        # we ship. Install it ONCE into the patch store (persistent, cf. dropbear)
+        # rather than regenerating it in /tmp at boot; the wrapper below only
+        # starts the listener that runs it. The device fetches it from our staging
+        # server, the same proven-unchanged path the wrapper itself takes.
+        sink = TALK_SINK_SCRIPT.encode()
+        sink_path = patched_file_path(TALK_SINK_NAME, d)
+        hub.publish("patcher", did, f"{P} checking free space on device...")
+        hub.publish("patcher", did, f"{P} " + await ensure_space_for(
+            d, device_ip, write_bytes=len(sink),
+            targets=[sink_path, wrapper_path], bridge=bridge, mount=storage_dir))
+
+        stage_file(TALK_SINK_NAME, sink)
+        hub.publish("patcher", did, f"{P} uploading sink script to {sink_path}...")
+        await send_run_cmd(
+            d,
+            f"wget -q -O {sink_path} {download_base}/{TALK_SINK_NAME} && "
+            f"chmod +x {sink_path}",
+            bridge,
+        )
+        if not await wait_for_heartbeat(d, timeout=30):
+            hub.publish("patcher", did, f"{P} sink upload timed out - staged file kept for retry")
+        else:
+            await asyncio.sleep(15)
+            cleanup_staged(TALK_SINK_NAME)
 
     else:
         # camera writes no file of its own — but the wrapper below is still a

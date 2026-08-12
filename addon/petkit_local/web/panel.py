@@ -68,6 +68,7 @@ from petkit_local.web.api.pets import (
 )
 from petkit_local.web.api.schedules import api_save_schedule
 from petkit_local.web.api.settings import api_blocked, api_info, api_retention, api_settings
+from petkit_local.web.api.talk import api_talk
 from petkit_local.web.api.timeline import api_event_detail, api_timeline
 from petkit_local.web.appkeys import (
     BACKGROUND_TASKS, BLE_REGISTRY, BRIDGE, CFG, EVENT_STORE, HA_PUBLISHER, HUB,
@@ -201,6 +202,8 @@ def create_panel_app(registry: DeviceRegistry, ble_registry: BLERegistry | None,
     app.router.add_post("/api/devices/{id}/ai", api_ai_settings)
     app.router.add_get("/api/devices/{id}/logs", api_device_log_settings)
     app.router.add_post("/api/devices/{id}/logs", api_device_log_settings)
+    # Two-way talk: browser mic -> device speaker (needs the `talk` patcher).
+    app.router.add_get("/api/devices/{id}/talk", api_talk)
 
     # --- BLE accessories. Pairing lives here because it lives in the cloud:
     # the device pulls a list and scans for exactly those MACs, and no firmware
