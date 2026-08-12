@@ -63,16 +63,24 @@ def test_an_unset_range_restricts_nothing():
             assert times == [[0, 1440]], f"{device_type}/{key} is not all day"
 
 
-def test_the_cleaning_do_not_disturb_is_the_one_that_stays_empty():
+#: The windows that SILENCE a job rather than enable one. An all-day default
+#: here would quietly stop the thing from ever running, which is the opposite
+#: of harmless -- so these are the entries that stay empty.
+SILENCING_RANGES = {"distrubMultiRange", "awDisturbMultiRange", "wlDisturbMultiRange"}
+
+
+def test_only_the_silencing_windows_default_to_empty():
     """Every other default is a window during which something is ACTIVE, so all
-    day means "always" and restricts nothing. This one is a window during which
-    the box must NOT clean, so all day would quietly disable automatic cleaning
-    on every litter box nobody had given a window to."""
+    day means "always" and restricts nothing. A do-not-disturb window is the
+    other way round: all day would disable automatic cleaning on every litter
+    box, and water top-up on every fountain, that nobody had given a window to.
+    """
     from petkit_local.devices.defaults import MULTI_RANGE_DEFAULTS
 
-    assert MULTI_RANGE_DEFAULTS["distrubMultiRange"] == []
     for key, value in MULTI_RANGE_DEFAULTS.items():
-        if key != "distrubMultiRange":
+        if key in SILENCING_RANGES:
+            assert value == [], f"{key} must not decide quiet hours for anyone"
+        else:
             assert value, f"{key} must have an all-day default"
 
     d = Device(device_type="t5", petkit_id=1, serial_number="SN")
@@ -137,13 +145,29 @@ def test_the_editor_and_the_device_see_the_same_values():
         assert target["value"] == served[target["target"]], target["target"]
 
 
-def test_a_fountain_has_no_ranges_to_serve_yet():
-    """A W7H's `ctrl` reads five of these and its app writes them, but the
-    branch that answers with them is PR #18's. Offering an editor for a schedule
-    this add-on cannot answer with is the confusing half of the feature."""
+def test_a_fountain_is_served_the_ranges_its_firmware_reads():
+    """Nine exist in the W7-262863 image and seven are sent.
+
+    Five are confirmed by watching PetKit's own cloud write them to a W7H; the
+    other two default to something that restricts nothing. The two
+    `*AssistMultiRange` fields are held back on purpose -- real fields, but no
+    capture shows a value, and this reply is re-sent on every poll, so an
+    invented window would overwrite the owner's on repeat.
+    """
     d = Device(device_type="w7h", petkit_id=1, serial_number="SN")
-    assert payloads.to_multi_config(d) == {"result": {}}
-    assert defaults.schedule_targets(d) == []
+    served = payloads.to_multi_config(d)["result"]
+    assert set(served) == {
+        "lightMultiRange", "toneMultiRange", "distrubMultiRange",
+        "detectMultiRange", "cameraMultiRange",
+        "awDisturbMultiRange", "wlDisturbMultiRange",
+    }
+    assert "lightAssistMultiRange" not in served
+    assert "wifiLightAssistMultiRange" not in served
+    # The camera-gating field is the object form here too -- W7H has no
+    # `cameraMultiNew` at all, so this is the one that decides.
+    assert isinstance(_decode(payloads.to_multi_config(d), "cameraMultiRange")[0], dict)
+    # And the editor now has something to offer.
+    assert {t["target"] for t in defaults.schedule_targets(d)} == set(served)
 
 
 def test_every_model_offers_only_schedules_it_has():

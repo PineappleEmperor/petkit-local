@@ -3,6 +3,7 @@ import { onAction, onChange, onSection } from './delegate.js';
 import { help } from './help.js';
 import { DEV_DETAIL, devPanel, ENTITY_SECTION, scheduleDetail } from './devices.js';
 import { setEntity } from './commands.js';
+import { controlRow } from './entities.js';
 
 onAction('save-schedule', el => {
   const box = el.closest('.sched');
@@ -81,10 +82,12 @@ function repaintSchedules(id) {
   const panel = devPanel(id);
   const card = panel && panel.querySelector('.sched-card');
   const d = DEV_DETAIL.get(id);
-  if (card && d) card.outerHTML = renderSchedules(d, scheduleTextEntities(d));
+  if (card && d) card.outerHTML = renderSchedules(d, scheduleEntities(d));
 }
 
-const scheduleTextEntities = d =>
+// Everything routed to this card: the raw-JSON `text` entities and now the
+// `time` ones too. `renderSchedules` splits them by component.
+const scheduleEntities = d =>
   (d.entities || []).filter(e => ENTITY_SECTION[e.component] === 'schedules');
 
 // One [from, to] row: either the whole day, or two clocks. `All day` is a real
@@ -251,10 +254,16 @@ function renderPointsEditor(id, t, value) {
     .join('');
 }
 
-function renderSchedules(d, textEntities) {
+function renderSchedules(d, sectionEntities) {
   const targets = d.schedules || [];
-  const texts = textEntities || [];
-  if (!targets.length && !texts.length) return '';
+  const all = sectionEntities || [];
+  // Two different shapes share this card. A `time` entity is one moment; a
+  // schedule target is a list of ranges. They are the same question to the
+  // person reading it, and different enough underneath that the units are
+  // spelled out rather than left to be inferred from the controls.
+  const times = all.filter(e => e.component === 'time');
+  const texts = all.filter(e => e.component !== 'time');
+  if (!targets.length && !all.length) return '';
   const editors = targets
     .map(t => {
       const value = schedValue(d.id, t);
@@ -283,6 +292,12 @@ function renderSchedules(d, textEntities) {
   return `<div class="card sched-card"><h3>Schedules${help(
     'The device runs these on its own clock — this app answers when it asks. Times are local, and nothing is set for you: a schedule you have not filled in is empty, and the device is simply not restricted. A period that ends before it starts runs through midnight, which is normal and is how PetKit’s own app writes quiet hours.',
   )}</h3>
+    ${
+      times.length
+        ? `<div class="ctrls">${times.map(e => controlRow(d.id, e)).join('')}</div>
+    <p class="sub">Those two are a single time of day. The periods below are RANGES — a start and an end — which is why they look different.</p>`
+        : ''
+    }
     <div class="sched-grid">${editors}</div>
     ${
       texts.length

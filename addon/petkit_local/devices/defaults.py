@@ -59,6 +59,17 @@ MULTI_RANGE_DEFAULTS: dict[str, Any] = {
     "cameraMultiNew": _ALL_DAY_WEEKLY,
     "detectMultiRange": _ALL_DAY,
     "distrubMultiRange": [],
+    # A W7H's two quiet windows: `aw` is addWater (the firmware keeps
+    # `awDisturb*` in the same vocabulary as `addWaterMode`, `addWaterSwitch`
+    # and `addWaterTimeAllow`), `wl` is unresolved — the whole image holds
+    # three `wl` tokens and none of them says what it stands for, so it stays
+    # unnamed rather than guessed at.
+    #
+    # Empty for the same reason `distrubMultiRange` is: these SILENCE a job,
+    # and an empty window silences nothing. Both are gated by their own
+    # `awDisturbMode`/`wlDisturbMode` switch as well.
+    "awDisturbMultiRange": [],
+    "wlDisturbMultiRange": [],
 }
 
 
@@ -200,11 +211,23 @@ def multi_config_ranges(device: Device) -> dict[str, Any]:
     elif device.is_feeder and device.is_camera:
         keys = ("detectMultiRange", "cameraMultiNew",
                 "toneMultiRange", "lightMultiRange")
-    # A fountain has these too — the W7H's own `ctrl` reads
-    # `awDisturbMultiRange`, `wlDisturbMultiRange` and their siblings — but
-    # the branch that serves them is PR #18's, not this change's. Until it
-    # lands, a W7H's ranges are storable and sendable and simply not part of
-    # this reply, which is what it has always received.
+    elif device.is_water_fountain:
+        # Nine of these exist in the W7-262863 image; SEVEN are sent.
+        #
+        # Five are confirmed by watching PetKit's own cloud write them to a
+        # W7H (capture 2026-08-11): `lightMultiRange`, `toneMultiRange`,
+        # `awDisturbMultiRange`, `wlDisturbMultiRange`, `cameraMultiRange`.
+        # `distrubMultiRange` and `detectMultiRange` are in the firmware's
+        # string table and default to something that restricts nothing, so
+        # sending them takes no decision away from the owner.
+        #
+        # `lightAssistMultiRange` and `wifiLightAssistMultiRange` are held
+        # back deliberately. They are real fields, but no capture shows a
+        # value, and this reply is re-sent on every poll — an invented window
+        # would overwrite whatever the owner set in PetKit's app, on repeat.
+        keys = ("lightMultiRange", "toneMultiRange", "distrubMultiRange",
+                "detectMultiRange", "cameraMultiRange",
+                "awDisturbMultiRange", "wlDisturbMultiRange")
     return {key: pick(key) for key in keys}
 
 
@@ -238,6 +261,12 @@ def schedule_targets(device: Device) -> list[dict[str, Any]]:
         "cameraMultiRange": "Shooting Period",
         "cameraMultiNew": "Shooting Period",
         "detectMultiRange": "Detection Period",
+        # `aw` is addWater, from the firmware's own vocabulary. `wl` is NOT
+        # resolved -- the image holds three `wl` tokens and none of them says
+        # what it abbreviates -- so the label stays the wire name rather than
+        # inventing a friendly one that might be wrong.
+        "awDisturbMultiRange": "Water Top-Up Undisturbed Period",
+        "wlDisturbMultiRange": "wlDisturb Undisturbed Period",
     }
     # Both camera-gating fields are `weekly` objects. `cameraMultiNew` used to
     # be listed as plain ranges here purely because that was the shape served

@@ -431,10 +431,14 @@ const ENTITY_SECTION = {
   switch: 'controls',
   number: 'controls',
   select: 'controls',
-  // A single time of day (the W7H's drain and flush hours). It belongs with the
-  // other settings, not under Schedules: that card is the raw JSON a device
-  // fetches on its own clock, and this is one field.
-  time: 'controls',
+  // A single time of day — the W7H's drain and flush hours. It sits with the
+  // Schedules, because from the owner's side "when does it flush" and "when is
+  // it quiet" are one question, and splitting them across two cards described
+  // OUR storage rather than their fountain. The split it used to follow is
+  // real, but it is a Home Assistant limitation: HA has no entity for a list
+  // of ranges, so only the single-point fields can be entities at all. The
+  // panel is under no such constraint.
+  time: 'schedules',
   button: 'actions',
   text: 'schedules',
   // No card of its own. An event entity is momentary — it fires and keeps no
