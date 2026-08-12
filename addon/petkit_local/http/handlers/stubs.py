@@ -34,6 +34,7 @@ from petkit_local.http.handlers._common import (
 )
 from petkit_local.media.crypto import resolve_key_string as _get_aes_key
 from petkit_local.utils.capture import capture_record
+from petkit_local.web.api.sounds import sound_list_for_device
 
 
 async def handle_sync_time(request: web.Request) -> web.Response:
@@ -237,11 +238,19 @@ async def handle_event_report(request: web.Request) -> web.Response:
     return web.json_response({"result": "success"})
 
 
-async def handle_empty_list(request: web.Request) -> web.Response:
-    """Answer ``{"result": []}`` — the generic "no entries" success.
+async def handle_sound_get(request: web.Request) -> web.Response:
+    """`dev_sound_get` — the device's uploaded custom sounds.
 
-    Routed for `dev_sound_get`: no custom sound packs are hosted here. An ARRAY
-    and not an object, because the firmware iterates the result (see the module
-    docstring on shapes).
+    Returns:
+        ``{"result": [...]}`` — one entry per uploaded sound, each carrying a
+        download URL pointing at our bucket. Empty when no sounds have been
+        uploaded. An ARRAY, because the firmware iterates the result.
     """
+    config = request.app["config"]
+    bucket_endpoint = config.get("bucket_endpoint", "")
+    device = request_device(request)
+    if device and bucket_endpoint:
+        sounds = sound_list_for_device(request, device.petkit_id, bucket_endpoint)
+        if sounds:
+            return web.json_response({"result": sounds})
     return web.json_response({"result": []})

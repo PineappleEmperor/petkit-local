@@ -69,6 +69,10 @@ from petkit_local.web.api.pets import (
 )
 from petkit_local.web.api.schedules import api_save_schedule
 from petkit_local.web.api.settings import api_blocked, api_info, api_retention, api_settings
+from petkit_local.web.api.sounds import (
+    api_sounds_delete, api_sounds_list, api_sounds_play,
+    api_sounds_select, api_sounds_upload,
+)
 from petkit_local.web.api.timeline import api_event_detail, api_timeline
 from petkit_local.web.appkeys import (
     BACKGROUND_TASKS, BLE_REGISTRY, BRIDGE, CFG, EVENT_STORE, HA_PUBLISHER, HUB,
@@ -205,6 +209,13 @@ def create_panel_app(registry: DeviceRegistry, ble_registry: BLERegistry | None,
     app.router.add_post("/api/devices/{id}/ai", api_ai_settings)
     app.router.add_get("/api/devices/{id}/logs", api_device_log_settings)
     app.router.add_post("/api/devices/{id}/logs", api_device_log_settings)
+
+    # --- custom sounds (camera feeders) ---
+    app.router.add_get("/api/devices/{id}/sounds", api_sounds_list)
+    app.router.add_post("/api/devices/{id}/sounds", api_sounds_upload)
+    app.router.add_delete("/api/devices/{id}/sounds/{sound_id}", api_sounds_delete)
+    app.router.add_post("/api/devices/{id}/sounds/{sound_id}/play", api_sounds_play)
+    app.router.add_post("/api/devices/{id}/sounds/{sound_id}/select", api_sounds_select)
 
     # --- BLE accessories. Pairing lives here because it lives in the cloud:
     # the device pulls a list and scans for exactly those MACs, and no firmware

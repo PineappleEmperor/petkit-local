@@ -261,7 +261,10 @@ onToggle('dev-panel', el => {
     if (body) body.innerHTML = '';
   }
 });
-onToggle('dev-sec', el => setSecOpen(Number(el.dataset.id), el.dataset.sec, el.open));
+onToggle('dev-sec', el => {
+  setSecOpen(Number(el.dataset.id), el.dataset.sec, el.open);
+  if (el.dataset.sec === 'sounds' && el.open) loadSounds(el.dataset.id);
+});
 
 // One request per device: the sidecars the detail view needs are folded into
 // `api_device_detail` server-side. They used to be three extra round trips,
@@ -388,6 +391,72 @@ onAction('delete-device', async el => {
   const r = await api('devices/' + encodeURIComponent(el.dataset.id), { method: 'DELETE' });
   toast(r.ok ? 'Device removed' : 'Error: ' + (r.error || 'failed'));
   loadDevices();
+});
+
+// --- custom sounds ---
+
+async function loadSounds(deviceId) {
+  const el = document.getElementById('sounds-' + deviceId);
+  if (!el) return;
+  const r = await api('devices/' + encodeURIComponent(deviceId) + '/sounds');
+  const sounds = r.sounds || [];
+  if (!sounds.length) {
+    el.innerHTML = '<p class="sub">No custom sounds uploaded.</p>';
+    return;
+  }
+  el.innerHTML = sounds
+    .map(
+      s =>
+        `<div class="row" style="align-items:center;gap:8px;margin:4px 0">
+      <span style="flex:1">${esc(s.name || 'Sound ' + s.id)} <span class="sub">(${(s.size / 1024).toFixed(0)} KB)</span></span>
+      <button class="act mini-ex" data-action="play-sound" data-id="${esc(String(deviceId))}" data-sid="${s.id}">Play</button>
+      <button class="act mini-ex" data-action="select-sound" data-id="${esc(String(deviceId))}" data-sid="${s.id}">Select</button>
+      <button class="act mini-ex danger" data-action="delete-sound" data-id="${esc(String(deviceId))}" data-sid="${s.id}">Delete</button>
+    </div>`,
+    )
+    .join('');
+}
+
+document.addEventListener('change', async e => {
+  const el = e.target;
+  if (!el.dataset || el.dataset.action !== 'upload-sound') return;
+  const file = el.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  const r = await api('devices/' + encodeURIComponent(el.dataset.id) + '/sounds', {
+    method: 'POST',
+    body: fd,
+  });
+  toast(r.ok ? 'Uploaded' : 'Error: ' + (r.error || 'failed'));
+  el.value = '';
+  loadSounds(el.dataset.id);
+});
+
+onAction('play-sound', async el => {
+  const r = await api(
+    'devices/' + encodeURIComponent(el.dataset.id) + '/sounds/' + el.dataset.sid + '/play',
+    { method: 'POST' },
+  );
+  toast(r.ok ? 'Playing' : 'Error: ' + (r.error || 'failed'));
+});
+
+onAction('select-sound', async el => {
+  const r = await api(
+    'devices/' + encodeURIComponent(el.dataset.id) + '/sounds/' + el.dataset.sid + '/select',
+    { method: 'POST' },
+  );
+  toast(r.ok ? 'Selected' : 'Error: ' + (r.error || 'failed'));
+});
+
+onAction('delete-sound', async el => {
+  if (!confirm('Delete this sound?')) return;
+  const r = await api(
+    'devices/' + encodeURIComponent(el.dataset.id) + '/sounds/' + el.dataset.sid,
+    { method: 'DELETE' },
+  );
+  toast(r.ok ? 'Deleted' : 'Error: ' + (r.error || 'failed'));
+  loadSounds(el.dataset.id);
 });
 
 onAction('ble-unpair', async el => {
@@ -702,6 +771,19 @@ function renderPanelBody(d) {
         e => `<tr><td>${esc(e.name)}</td><td>${esc(e.component)}</td><td>${esc(e.key)}</td></tr>`,
       )
       .join('')}</tbody></table></div>`
+      : ''
+  }
+
+  ${
+    d.is_camera && d.is_feeder
+      ? `<div class="card"><details class="adv" data-toggle="dev-sec" data-id="${esc(d.id)}" data-sec="sounds" ${secOpen(d.id, 'sounds', false) ? 'open' : ''}><summary>Custom Sounds</summary>
+    <div id="sounds-${esc(d.id)}"><p class="sub">Loading...</p></div>
+    <div style="margin-top:10px">
+      <label class="act" style="cursor:pointer">Upload sound
+        <input type="file" accept="audio/*" style="display:none" data-action="upload-sound" data-id="${esc(d.id)}">
+      </label>
+    </div>
+  </details></div>`
       : ''
   }
 

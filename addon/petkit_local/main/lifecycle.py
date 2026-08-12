@@ -179,7 +179,7 @@ async def start_background(services: Services, app_instance: web.Application) ->
     os.makedirs(device_log_root, exist_ok=True)
     app_config["device_log_root"] = device_log_root
     bucket_app = create_bucket_app(raw_root, hub=hub, log_root=device_log_root,
-                                   registry=registry)
+                                   registry=registry, data_dir=config.data_dir)
     bucket_runner = web.AppRunner(bucket_app)
     await bucket_runner.setup()
     # Bucket needs TLS: cloud parses the PAR URL as https:// and crashes

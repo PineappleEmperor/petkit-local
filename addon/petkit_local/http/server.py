@@ -55,7 +55,7 @@ from petkit_local.http.handlers.stubs import (
     handle_device_info,
     handle_multi_config,
     handle_event_report,
-    handle_empty_list,
+    handle_sound_get,
     handle_attire_over,
 )
 from petkit_local.patchers.common import STAGE_DIR
@@ -119,7 +119,7 @@ def create_app(registry: DeviceRegistry, config: dict) -> web.Application:
         app.router.add_route("*", f"{p}/dev_ble_device", handle_ble_device)
         app.router.add_route("*", f"{p}/dev_k3_device_info", handle_k3_device_info)
         app.router.add_route("*", f"{p}/dev_schedule_get", handle_schedule_get)
-        app.router.add_route("*", f"{p}/dev_sound_get", handle_empty_list)
+        app.router.add_route("*", f"{p}/dev_sound_get", handle_sound_get)
         app.router.add_route("*", f"{p}/dev_attire_over", handle_attire_over)
         app.router.add_route("*", f"{p}/dev_feed_get", handle_feed_get)
         app.router.add_route("*", f"{p}/dev_event_report", handle_event_report)
