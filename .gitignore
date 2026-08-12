@@ -25,6 +25,8 @@ venv/
 *.egg-info/
 build/
 dist/
+# uv lockfile from a local `uv` run; the project pins via pyproject, not a lockfile
+uv.lock
 
 # Test/tooling caches
 .pytest_cache/
