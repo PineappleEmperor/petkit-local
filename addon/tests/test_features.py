@@ -70,14 +70,17 @@ def test_litter_has_event_and_text_entities():
     assert "event" in comps and "text" in comps
 
 
-def test_text_schedule_routing_writes_config():
+def test_text_schedule_routing_writes_config_and_pushes():
     d = Device(device_type="t5", petkit_id=1)
     idx = {e.unique_id_suffix: e for e in get_entities_for_device(d) if e.is_settable}
     ent = idx["cleaning_schedule"]
     schedule = json.dumps([{"time": 585, "type": 0}])
     res = handle_ha_command(d, ent, schedule)
-    assert res is None  # served via HTTP, not MQTT
     assert d.config["schedule"] == [{"time": 585, "type": 0}]
+    assert res is not None
+    suffix, envelope = res
+    assert suffix == "property/set"
+    assert "schedule" in envelope["params"]
 
 
 def test_event_entity_is_not_settable():

@@ -368,18 +368,21 @@ async def test_an_unknown_target_is_refused():
         await c.close()
 
 
-async def test_a_feeding_schedule_is_stored_and_not_pushed():
-    """No capture shows the cloud writing one, and `dev_feed_get` serves it —
-    so it is stored and nothing is sent to the device."""
+async def test_a_feeding_schedule_is_stored_and_pushed():
+    """The cloud pushes feed schedules via property.set{feed: "<json>"},
+    confirmed in a D4SH MQTT capture (2026-08-12)."""
     app, reg, bridge = _panel("d4sh")
     c = await _client(app)
     try:
         payload = {"schedule": [{"re": "1,2,3,4,5,6,7", "it": [], "itemJsonString": "[]"}],
                    "nextTick": 0, "latest": []}
         status, out = await _save(c, "feed_schedule", payload)
-        assert status == 200 and out["delivered"] == "local"
+        assert status == 200
         assert reg.get(1).config["feed_schedule"] == payload
-        assert not bridge.sent
+        assert bridge.sent
+        _did, suffix, envelope = bridge.sent[0]
+        assert suffix == "property/set"
+        assert "feed" in envelope["params"]
     finally:
         await c.close()
 
@@ -442,14 +445,15 @@ async def test_a_feeding_schedule_is_stored_in_the_shape_the_firmware_parses():
             {"re": "1,2,3,4,5,6,7",
              "it": [{"id": 1, "t": 510, "a1": 1, "a2": 3}]},
         ]})
-        assert status == 200 and out["delivered"] == "local"
+        assert status == 200
 
         group = reg.get(1).config["feed_schedule"]["schedule"][0]
         assert sorted(group["it"][0]) == ["a1", "a2", "id", "t"]
         assert group["it"][0]["t"] == 510  # 08:30, minutes since midnight
-        # Stored and NOT pushed: no capture shows the cloud writing one, and
-        # `dev_feed_get` is where the device reads it on its own clock.
-        assert not bridge.sent
+        assert bridge.sent
+        _did, suffix, envelope = bridge.sent[0]
+        assert suffix == "property/set"
+        assert "feed" in envelope["params"]
     finally:
         await c.close()
 

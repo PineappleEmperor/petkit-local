@@ -8,6 +8,7 @@ the odd-looking values are the ones that came out of the real app.
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 from aiohttp import web
@@ -223,10 +224,17 @@ async def api_save_schedule(request: web.Request) -> web.Response:
             return web.json_response({"error": "not a valid feeding schedule"}, status=400)
         d.config["feed_schedule"] = feed
         reg.save()
-        # Stored and not pushed: no capture shows the cloud writing one, and
-        # `dev_feed_get` is where the device reads it on its own clock anyway.
-        hub.record_command(d.petkit_id, "local", "feed_schedule stored")
-        return web.json_response({"ok": True, "delivered": "local", "target": target})
+        # Two commands, mirroring the cloud: property.set{feed} carries the
+        # schedule over MQTT, and feed_get:"1" tells the device to re-poll
+        # dev_feed_get (the only path over HTTP heartbeat). _deliver picks
+        # whichever transport is live; the feed_get is always queued for
+        # heartbeat as a backstop.
+        mqtt_cmd = make_mqtt_property_set(
+            {"feed": json.dumps(feed, separators=(",", ":"))})
+        hb_cmd = {"msgType": 1, "payload": {"feed_get": "1"},
+                  "timestamp": int(time.time())}
+        d.command_queue.append(hb_cmd)
+        return await _deliver(hub, bridge, d, PROPERTY_SET_SUFFIX, mqtt_cmd)
 
     cleaner = {"ranges": _clean_range_list, "weekly": _clean_weekly_list,
                "points": _clean_point_list}[kind]

@@ -552,6 +552,15 @@ def handle_ha_command(device: Device, entity: EntityDef, payload: str) -> Comman
             parsed = payload
         device.config[key] = parsed
         log.info("Set config[%s] for device %d", key, device.petkit_id)
+        if key == "feed_schedule" and isinstance(parsed, (dict, list)):
+            device.command_queue.append({"msgType": 1,
+                                         "payload": {"feed_get": "1"},
+                                         "timestamp": int(time.time())})
+            return (PROPERTY_SET_SUFFIX, make_mqtt_property_set(
+                {"feed": json.dumps(parsed, separators=(",", ":"))}))
+        if key == "schedule" and isinstance(parsed, (dict, list)):
+            return (PROPERTY_SET_SUFFIX, make_mqtt_property_set(
+                {"schedule": json.dumps(parsed, separators=(",", ":"))}))
         return None
 
     if comp not in ("switch", "number", "select", "time"):
