@@ -8,12 +8,13 @@ let TL_DATE = null,
   TL_DEVICE = '',
   TL_PET = '',
   TL_MULTIDEV = false;
-// Debug state lives at module scope on purpose. #timelineView is re-rendered
-// wholesale by loadTimeline(), including 400ms after any websocket media/event
-// message, so anything held on an element is lost — but a global survives, and
-// sessionCard() re-renders open panels straight from the cache. An event's
-// content never changes after ingest, so caching it for the session is safe
-// and means a live refresh costs no requests and shows no flicker.
+// Debug state lives at module scope on purpose. A card whose data changed is
+// rebuilt from markup (see `reconcile`), so anything held on its elements is
+// lost — but a global survives, and sessionCard() re-renders open panels
+// straight from the cache. An event's content never changes after ingest, so
+// caching it for the session is safe and means a live refresh costs no
+// requests and shows no flicker. A card whose data did NOT change is reused
+// untouched, which is what keeps a panel opened by `toggleDebug` open.
 let TL_DEBUG = false;
 const TL_DBG_OPEN = new Set();
 const TL_DBG_CACHE = new Map();
@@ -45,6 +46,156 @@ function petChip(p) {
   }${esc(p.name)}</button>`;
 }
 
+// --- rendering without tearing the view down -------------------------------
+//
+// loadTimeline runs 400ms after EVERY websocket event and media frame, so on
+// an install with several talkative devices it runs continuously. Replacing
+// #timelineView wholesale meant a playing <video> restarted, an open
+// <details> collapsed the instant it was opened, and a <select> held open by
+// the pointer closed underneath it — reported from a four-device install and
+// invisible on a quiet one, where the same code runs a handful of times a day.
+//
+// Two rules keep it usable, and the second matters as much as the first:
+// reconcile the cards by id and REUSE the node when its markup is unchanged,
+// and never write to the DOM unless the value actually differs. Reassigning a
+// count to the number it already held is what closes an open dropdown.
+
+/** Assign only on change — see the note above about writing to a live DOM. */
+function setText(el, text) {
+  if (el && el.textContent !== text) el.textContent = text;
+}
+function setFlag(el, cls, on) {
+  if (el && el.classList.contains(cls) !== on) el.classList.toggle(cls, on);
+}
+
+//: Last markup rendered per card id, so an unchanged card can be left alone.
+//: Keyed the same way `reconcile` keys the DOM, and pruned with it.
+const TL_CARD_HTML = new Map();
+
+/** Move any still-valid <video> from the old card into its replacement.
+ *
+ * A card that changed at all is rebuilt from HTML, which would restart a video
+ * that is playing and whose source did not change — the preview loops, so the
+ * restart is visible as a blink. Matching on `data-src` (what `media.js`
+ * renders and `observeLazyVideos` loads from) keeps the element itself,
+ * playback position included.
+ */
+function adoptVideos(oldCard, fresh) {
+  const mine = new Map();
+  oldCard.querySelectorAll('video.lazyvid[data-src]').forEach(v => mine.set(v.dataset.src, v));
+  fresh.querySelectorAll('video.lazyvid[data-src]').forEach(v => {
+    const kept = mine.get(v.dataset.src);
+    if (kept) v.replaceWith(kept);
+  });
+}
+
+/** Make `container`'s children match `items`, reusing every unchanged node.
+ *
+ * `appendChild` MOVES an existing node rather than copying it, so walking the
+ * new order and appending each node both orders the list and preserves the
+ * nodes that were kept.
+ */
+function reconcile(container, items) {
+  const existing = new Map();
+  for (const el of Array.from(container.children)) {
+    const k = el.dataset && el.dataset.tlkey;
+    if (k) existing.set(k, el);
+    else el.remove();
+  }
+  for (const { key, html } of items) {
+    let node = existing.get(key);
+    if (node && TL_CARD_HTML.get(key) === html) {
+      existing.delete(key);
+    } else {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const fresh = tmp.firstElementChild;
+      if (!fresh) continue;
+      fresh.dataset.tlkey = key;
+      if (node) {
+        adoptVideos(node, fresh);
+        existing.delete(key);
+        node.remove();
+      }
+      node = fresh;
+      TL_CARD_HTML.set(key, html);
+    }
+    container.appendChild(node);
+  }
+  for (const [k, el] of existing) {
+    el.remove();
+    TL_CARD_HTML.delete(k);
+  }
+}
+
+const TL_FILTERS = [
+  ['all', 'All'],
+  ['pet', 'Pet'],
+  ['toileting', 'Toileting'],
+  ['health_alert', 'Health Alert'],
+  ['fault', 'Faults'],
+];
+
+function controlsHtml(ds, pets) {
+  return `<div class="card" data-tlkey="controls">
+    <div class="row" style="align-items:center;margin-bottom:10px">
+      <button class="ghost act" data-action="tl-shift" data-n="-1">◂</button>
+      <input type="date" id="tlDate" value="${esc(TL_DATE)}" data-change="tl-date" style="width:auto">
+      <button class="ghost act" id="tlNext" data-action="tl-shift" data-n="1">▸</button>
+      <select id="tlDevice" data-change="tl-device" style="width:auto">
+        <option value="">All devices</option>
+        ${ds.map(d => `<option value="${esc(d.id)}">${esc(d.name)} #${esc(d.id)}</option>`).join('')}
+      </select>
+      <span class="grow"></span>
+    </div>
+    ${
+      pets.length
+        ? `<div class="row tl-filterbar" style="align-items:center">
+      <div class="chips" role="group" aria-label="Filter by pet">
+        <button class="chip-btn" data-action="tl-pet" data-k="">All pets</button>
+        ${pets.map(petChip).join('')}
+      </div>
+      <span class="grow"></span>
+    </div>`
+        : ''
+    }
+    <div class="row tl-filterbar" style="align-items:center">
+      <div class="chips">
+        ${TL_FILTERS.map(([k, label]) => `<button class="chip-btn" data-action="tl-filter" data-k="${k}">${esc(label)}<span class="chip-n"></span></button>`).join('')}
+      </div>
+      <span class="grow"></span>
+      <label class="mut tl-dbgtog"><input type="checkbox" data-change="tl-debug"> Debug info</label>
+    </div>
+  </div>`;
+}
+
+/** Bring the controls up to date without replacing any of them.
+ *
+ * The selected-state and the counts change on every refresh; the option list
+ * and the pet chips almost never do. Rebuilding the card for a count would
+ * close the device dropdown mid-click, which is exactly the reported bug.
+ */
+function patchControls(card, data) {
+  const date = card.querySelector('#tlDate');
+  if (date && date.value !== TL_DATE) date.value = TL_DATE;
+  const next = card.querySelector('#tlNext');
+  if (next) {
+    const stop = TL_DATE >= todayLocal();
+    if (next.disabled !== stop) next.disabled = stop;
+  }
+  const sel = card.querySelector('#tlDevice');
+  if (sel && sel.value !== TL_DEVICE) sel.value = TL_DEVICE;
+  const dbg = card.querySelector('input[data-change="tl-debug"]');
+  if (dbg && dbg.checked !== TL_DEBUG) dbg.checked = TL_DEBUG;
+  card.querySelectorAll('[data-action="tl-pet"]').forEach(b => {
+    setFlag(b, 'on', (b.dataset.k || '') === TL_PET);
+  });
+  card.querySelectorAll('[data-action="tl-filter"]').forEach(b => {
+    setFlag(b, 'on', b.dataset.k === TL_FILTER);
+    setText(b.querySelector('.chip-n'), String(data.counts[b.dataset.k] ?? 0));
+  });
+}
+
 async function loadTimeline() {
   if (!TL_DATE) TL_DATE = todayLocal();
   const [ds, pd] = await Promise.all([api('devices'), api('pets').catch(() => ({}))]);
@@ -58,44 +209,38 @@ async function loadTimeline() {
   if (TL_PET) q.set('pet', TL_PET);
   const data = await api('timeline?' + q.toString());
   const v = document.getElementById('timelineView');
-  const filters = [
-    ['all', 'All'],
-    ['pet', 'Pet'],
-    ['toileting', 'Toileting'],
-    ['health_alert', 'Health Alert'],
-    ['fault', 'Faults'],
-  ];
-  v.innerHTML = `<div class="card">
-    <div class="row" style="align-items:center;margin-bottom:10px">
-      <button class="ghost act" data-action="tl-shift" data-n="-1">◂</button>
-      <input type="date" id="tlDate" value="${esc(TL_DATE)}" data-change="tl-date" style="width:auto">
-      <button class="ghost act" data-action="tl-shift" data-n="1" ${TL_DATE >= todayLocal() ? 'disabled' : ''}>▸</button>
-      <select id="tlDevice" data-change="tl-device" style="width:auto">
-        <option value="">All devices</option>
-        ${ds.map(d => `<option value="${esc(d.id)}" ${String(d.id) === TL_DEVICE ? 'selected' : ''}>${esc(d.name)} #${esc(d.id)}</option>`).join('')}
-      </select>
-      <span class="grow"></span>
-    </div>
-    ${
-      pets.length
-        ? `<div class="row tl-filterbar" style="align-items:center">
-      <div class="chips" role="group" aria-label="Filter by pet">
-        <button class="chip-btn${TL_PET === '' ? ' on' : ''}" data-action="tl-pet" data-k="">All pets</button>
-        ${pets.map(petChip).join('')}
-      </div>
-      <span class="grow"></span>
-    </div>`
-        : ''
-    }
-    <div class="row tl-filterbar" style="align-items:center">
-      <div class="chips">
-        ${filters.map(([k, label]) => `<button class="chip-btn${TL_FILTER === k ? ' on' : ''}" data-action="tl-filter" data-k="${k}">${esc(label)}<span class="chip-n">${esc(data.counts[k] ?? 0)}</span></button>`).join('')}
-      </div>
-      <span class="grow"></span>
-      <label class="mut tl-dbgtog"><input type="checkbox" ${TL_DEBUG ? 'checked' : ''} data-change="tl-debug"> Debug info</label>
-    </div>
-  </div>
-  ${data.sessions.length ? data.sessions.map(sessionCard).join('') : '<div class="card"><p class="mut">No activity on this day.</p></div>'}`;
+
+  let controls = v.querySelector('[data-tlkey="controls"]');
+  // Only the option list and the chip set justify rebuilding this card; the
+  // selections and counts are patched in place below.
+  const shape = controlsHtml(ds, pets);
+  if (!controls || TL_CARD_HTML.get('controls') !== shape) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = shape;
+    const fresh = tmp.firstElementChild;
+    if (controls) controls.replaceWith(fresh);
+    else v.prepend(fresh);
+    controls = fresh;
+    TL_CARD_HTML.set('controls', shape);
+  }
+  patchControls(controls, data);
+
+  let list = v.querySelector('#tlList');
+  if (!list) {
+    list = document.createElement('div');
+    list.id = 'tlList';
+    v.appendChild(list);
+  }
+  const items = data.sessions.length
+    ? data.sessions.map(s => ({ key: 's' + s.id, html: sessionCard(s) }))
+    : [
+        {
+          key: 'empty',
+          html: '<div class="card"><p class="mut">No activity on this day.</p></div>',
+        },
+      ];
+  reconcile(list, items);
+
   v.classList.toggle('dbg', TL_DEBUG);
   observeLazyVideos();
 }

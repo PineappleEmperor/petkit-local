@@ -191,6 +191,33 @@ async def test_devices_tab_is_one_collapsible_panel_per_device():
         await c.close()
 
 
+async def test_timeline_refresh_does_not_rebuild_the_whole_view():
+    """The Timeline reruns 400ms after every event and media frame.
+
+    Rebuilding `#timelineView` wholesale restarted playing videos, collapsed a
+    `<details>` the moment it was opened, and closed the device `<select>` under
+    the pointer. Reported from a four-device install; invisible on a quiet one,
+    where the same code runs a few times a day rather than continuously.
+
+    Two properties keep it usable and both are asserted here, because either one
+    alone still breaks the dropdown: cards are reconciled by key so an unchanged
+    one is REUSED, and the controls are patched only where a value differs.
+    """
+    js = _panel_js()
+    tl = (Path(__file__).resolve().parents[1] / "petkit_local" / "web" / "static"
+          / "js" / "timeline.js").read_text()
+
+    # The wholesale swap this replaced.
+    assert "v.innerHTML" not in tl, "timeline still replaces the whole view"
+    # Reconciliation, and the key it hangs on.
+    assert "function reconcile(" in js and "data-tlkey" in js and "tlkey" in tl
+    # A video whose source did not change is moved, not re-created.
+    assert "function adoptVideos(" in js and "lazyvid[data-src]" in js
+    # Writing an unchanged value to a live DOM is what closes an open dropdown.
+    assert "function patchControls(" in js
+    assert "el.textContent !== text" in js
+
+
 async def test_no_element_id_is_shared_between_device_panels():
     """With one pane there was exactly one #cmdOut and one #cmdRaw. With a panel
     per device those ids would collide and every device's result would land in
