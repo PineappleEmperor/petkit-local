@@ -160,19 +160,20 @@ def _clean_feed_schedule(value: Any) -> dict[str, Any] | None:
             if not isinstance(meal, dict):
                 return None
             minute = to_int(meal.get("t"), None)
-            meal_id = to_int(meal.get("id"), None)
+            raw_id = meal.get("id")
+            if isinstance(raw_id, int):
+                raw_id = f"n_{minute}" if minute is not None else f"n_{raw_id}"
+            if not isinstance(raw_id, str) or not raw_id:
+                return None
             first = to_int(meal.get("a1"), None)
             second = to_int(meal.get("a2"), 0)
-            if minute is None or meal_id is None or first is None or second is None:
+            if minute is None or first is None or second is None:
                 return None
             if not 0 <= minute < DAY_MINUTES:
                 return None
-            # The portion is stored in ONE BYTE on this hardware (`sb` in
-            # `parse_service_invoke_msg`), so anything above 255 wraps rather
-            # than clamping — which would dispense a number nobody asked for.
             if not (0 <= first <= 255 and 0 <= second <= 255):
                 return None
-            meals.append({"id": meal_id, "t": minute, "a1": first, "a2": second})
+            meals.append({"id": raw_id, "t": minute, "a1": first, "a2": second})
 
         groups.append({
             "re": ",".join(str(d) for d in sorted(set(days))),
