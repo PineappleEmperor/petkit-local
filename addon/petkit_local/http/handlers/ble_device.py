@@ -35,6 +35,18 @@ async def handle_ble_device(request: web.Request) -> web.Response:
         do have is a shape that ran for months without the complaint. When a
         report arrives with a capture, this is the comment to correct.
 
+        There is a second, independent reason to leave this alone, and it
+        cuts the other way: `pk_schmg_parse_ble_dev_list` (T5, D4SH and W7H
+        all share `ble_relay_network.c`) rejects the WHOLE body below 40 bytes
+        with `ble list len too short`, before it parses anything. Our empty
+        answer is 30 bytes over HTTP and 28 compact over MQTT, so on that
+        family it is discarded entirely -- `nextTick` included, despite the
+        paragraph below. Adding `list` is what pushes it past the gate and into
+        the parser, which is where the field reports came from. So the shape
+        that works does so by never being read, and anything that lengthens it
+        by ~10 bytes would silently re-enter the path that broke. `tests/`
+        holds that line.
+
         `nextTick` stays either way, and is not implicated in any of it. It
         tells the parent when to come back for the list, and omitting it left a
         device with nothing paired holding no schedule at exactly the moment it

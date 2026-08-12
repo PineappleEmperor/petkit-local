@@ -26,15 +26,26 @@ Also welcome:
 A capture is a verbatim recording of everything the device said and was told.
 Nothing in it is filtered, because it is only useful if it is exact.
 
-Any of these files can contain your **Wi-Fi SSID**, your LAN addresses, the device
-serial and its signing secret. If proxy mode was on, `proxy_http.jsonl` and
-`proxy_mqtt.jsonl` also carry the **full exchanges with PetKit, including your
-account credentials**, which is enough for someone else to talk to their cloud as
-you.
+Any of these files can contain your **Wi-Fi SSID and BSSID**, your LAN addresses,
+the device serial and its signing secret. Secrets are not confined to the files
+that sound like they would hold them:
+
+* a Purobot Ultra puts `packageSn` **and `packageSecret`** in every single
+  `property/post`, roughly once a minute, and in its `melt_over` and
+  `package_over` events;
+* every camera event carries the `aesKey` its media is encrypted with, in clear;
+* the Wi-Fi block rides along in the state snapshot attached to **every** event,
+  not only in the state reports.
+
+If proxy mode was on, `proxy_http.jsonl` and `proxy_mqtt.jsonl` also carry the
+**full exchanges with PetKit, including your account credentials**, which is
+enough for someone else to talk to their cloud as you.
 
 `requests.jsonl`, `state_report.jsonl`, `mqtt.jsonl` and `event_report.jsonl`
 usually answer the question on their own. Grep your SSID out first and attach only
-what the question needs.
+what the question needs. Note that the redaction proxy mode applies to what
+reaches the DEVICE does not apply to what is written here — a capture is
+deliberately unfiltered.
 
 ## Working on the code
 

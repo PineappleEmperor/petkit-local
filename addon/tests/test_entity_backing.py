@@ -109,6 +109,16 @@ UNSEEDED_BY_DESIGN = {
 #: the exact failure this file was written to catch, and it walked straight past
 #: it. So a passthrough-only key now has to be listed here with its evidence.
 PASSTHROUGH_ATTESTED = {
+    # The Purobot Ultra's bagging mechanism, from a 67-hour capture of a real
+    # T6 (2026-08-11). Counts are out of its 3475 `property/post` frames. The
+    # VALUES are not decoded and the entities publish them raw -- what is
+    # attested here is only that the field arrives.
+    "packageState": "T6 capture 2026-08-11: 3475/3475 property posts",
+    "packState": "T6 capture 2026-08-11: 3475 posts, values -1 (3470) / 1 (5)",
+    "baggingState": "T6 capture 2026-08-11: 3475 posts, values -1 (3315) / 1 (160)",
+    "sealDoorState": "T6 capture 2026-08-11: 3475 posts, values 0 / 1 (179)",
+    "boxStoreState": "T6 capture 2026-08-11: 3475 posts, values 0 (3470) / 2 (5)",
+    "packageCount": "T6 capture 2026-08-11: 3475 posts, values 10 and 9",
     # In real T5 `ctrl`, and in all 1254 captured litter snapshots.
     "sprayState": "T5 ctrl string table; 1254/1254 captured snapshots",
     "boxState": "T5 ctrl string table; 1254/1254 captured snapshots",

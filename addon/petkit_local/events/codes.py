@@ -520,7 +520,7 @@ MQTT_EVENT_TOPICS: dict[str, EventCode] = {
         kind=KIND_CLEANING, label="Reset done", role=ROLE_DONE,
         done_word="reset", families=LITTER),
     "smooth_over": EventCode(
-        kind=KIND_CLEANING, label="Leveling done", grade=UNVERIFIED,
+        kind=KIND_CLEANING, label="Leveling done", grade=CONFIRMED,
         role=ROLE_DONE, done_word="leveling", families=LITTER_NEXT_GEN),
     "correct_over": EventCode(
         kind=KIND_CLEANING, label="Litter correction done", grade=UNVERIFIED,
@@ -529,7 +529,7 @@ MQTT_EVENT_TOPICS: dict[str, EventCode] = {
         kind=KIND_CLEANING, label="Litter level corrected", grade=UNVERIFIED,
         role=ROLE_DONE, done_word="litter correction", families=LITTER_NEXT_GEN),
     "light_over": EventCode(
-        kind=KIND_CLEANING, label="Light cycle done", grade=UNVERIFIED,
+        kind=KIND_CLEANING, label="Light cycle done", grade=CONFIRMED,
         detail=True, role=ROLE_DONE, done_word="light cycle",
         state_label=("lightState", "light on", "light off"),
         families=LITTER_NEXT_GEN,
@@ -543,7 +543,7 @@ MQTT_EVENT_TOPICS: dict[str, EventCode] = {
              "note records. The second report is a SEPARATE episode with its "
              "own event_id and no link back, so it heads its own card."),
     "spray_over": EventCode(
-        kind=KIND_CLEANING, label="Deodorizing done", grade=UNVERIFIED,
+        kind=KIND_CLEANING, label="Deodorizing done", grade=CONFIRMED,
         role=ROLE_DONE, done_word="deodorizing", families=LITTER_N60,
         note="N60 liquid deodorizer. Present on every model that takes an N60 "
              "refill, not the T5 alone -- see LITTER_N60."),
@@ -562,10 +562,10 @@ MQTT_EVENT_TOPICS: dict[str, EventCode] = {
              "Deliberately NOT in ingest._CLEAN_DONE_WORDS: a consumable reset "
              "is not a clean and must not date Last Clean."),
     "melt_over": EventCode(
-        kind=KIND_CLEANING, label="Melt cycle done", grade=UNVERIFIED,
+        kind=KIND_CLEANING, label="Melt cycle done", grade=CONFIRMED,
         role=ROLE_DONE, done_word="melt cycle", families=LITTER_T6_PLUS),
     "package_over": EventCode(
-        kind=KIND_CLEANING, label="Bagging done", grade=UNVERIFIED,
+        kind=KIND_CLEANING, label="Bagging done", grade=CONFIRMED,
         role=ROLE_DONE, done_word="bagging", families=LITTER_T6_PLUS),
     # -- litter: pet
     "pet_in": EventCode(
@@ -590,13 +590,13 @@ MQTT_EVENT_TOPICS: dict[str, EventCode] = {
         detail=True, families=LITTER_T6_PLUS),
     # -- motor stop (litter)
     "stop_start": EventCode(
-        kind=KIND_CLEANING, label="Motor stop requested", grade=UNVERIFIED,
+        kind=KIND_CLEANING, label="Motor stop requested", grade=CONFIRMED,
         detail=True, role=ROLE_STOP, families=LITTER_NEXT_GEN),
     "stop_suspend": EventCode(
-        kind=KIND_CLEANING, label="Motor stop paused", grade=UNVERIFIED,
+        kind=KIND_CLEANING, label="Motor stop paused", grade=CONFIRMED,
         detail=True, role=ROLE_STOP, families=LITTER_NEXT_GEN),
     "stop_continue": EventCode(
-        kind=KIND_CLEANING, label="Motor stop resumed", grade=UNVERIFIED,
+        kind=KIND_CLEANING, label="Motor stop resumed", grade=CONFIRMED,
         detail=True, role=ROLE_STOP, families=LITTER_NEXT_GEN),
     # -- feeder
     "feed_start": EventCode(
@@ -636,8 +636,21 @@ MQTT_EVENT_TOPICS: dict[str, EventCode] = {
         kind=KIND_CLEANING, label="Refill done", grade=INFERRED, anchor=True,
         role=ROLE_DONE, done_word="refilling", families=FOUNTAIN_NEXT_GEN),
     "drink_over": EventCode(
-        kind=KIND_DRINKING, label="Drinking done", grade=UNVERIFIED,
+        kind=KIND_DRINKING, label="Drinking done", grade=CONFIRMED,
         anchor=True, role=ROLE_DONE, done_word="drinking",
+        families=FOUNTAIN_NEXT_GEN,
+        note="188 in one W7H capture (2026-08-11), with content "
+             "{event_start, img, aesKey, upload, media, mark}. The note that "
+             "this had never been seen is gone with them."),
+    # The two water-treatment jobs, from the same capture: 3 and 2 frames,
+    # content `{img, aesKey, mark, upload, media, event_start, event_end}` --
+    # the `add_water_over` shape, which is what they are siblings of.
+    "flush_over": EventCode(
+        kind=KIND_CLEANING, label="Flush done", anchor=True, role=ROLE_DONE,
+        done_word="flushing", families=FOUNTAIN_NEXT_GEN),
+    "water_change_over": EventCode(
+        kind=KIND_CLEANING, label="Water change done", anchor=True,
+        role=ROLE_DONE, done_word="changing the water",
         families=FOUNTAIN_NEXT_GEN),
     # -- shared detection
     "move_detect": EventCode(
@@ -670,10 +683,10 @@ MQTT_EVENT_TOPICS: dict[str, EventCode] = {
     "ble_response": EventCode(
         kind=KIND_SYSTEM, label="BLE response", detail=True),
     "ble_relay_start": EventCode(
-        kind=KIND_SYSTEM, label="BLE relay started", grade=UNVERIFIED,
+        kind=KIND_SYSTEM, label="BLE relay started", grade=CONFIRMED,
         detail=True),
     "ble_relay_over": EventCode(
-        kind=KIND_SYSTEM, label="BLE relay finished", grade=UNVERIFIED,
+        kind=KIND_SYSTEM, label="BLE relay finished", grade=CONFIRMED,
         detail=True),
 }
 
@@ -953,6 +966,11 @@ FEED_SRC: dict[int, str] = {
 #: whether it names the cause or only the outcome is not settled.
 FEED_RESULT: dict[int, str] = {
     0: "dispensed",
+    #: Seen twice in a D4SH capture, each time with `err_code: 7` on the same
+    #: feed -- so it names a fault rather than an outcome, and what the fault
+    #: IS has no source. Listed because rendering it as `error 7` implied we
+    #: had never seen it.
+    7: "failed (error 7)",
     8: "nothing dispensed",
     10: "skipped",
 }

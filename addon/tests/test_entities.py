@@ -58,7 +58,9 @@ EXPECTED_ENTITY_COUNTS = {
     # 67 -> 84 on the W7H: nine camera and voice switches (it had a camera
     # entity and no way to switch the camera off), the two drain cycles and
     # their two times, volume, voice language, and the same two power buttons.
-    "t3": 46, "t4": 46, "t5": 82, "t6": 83, "t7": 82,
+    # t6 +6 on 2026-08-12: the bagging mechanism it reports in every
+    # property post and nothing here read. No other litter box has it.
+    "t3": 46, "t4": 46, "t5": 82, "t6": 89, "t7": 82,
     "feeder": 25, "feedermini": 25, "d3": 25, "d4": 25, "d4s": 25,
     # +1 each on 2026-08-12: `enable_feed_video`, which pushes the three
     # media-upload enables to a feeder that is already running rather than

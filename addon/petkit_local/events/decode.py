@@ -401,19 +401,27 @@ _FIELDS: dict[str, _FieldSpec] = {
         "identified, which is 31 of 33 captured 'appeared' episodes."),
     "area": _FieldSpec(
         "Detection area", _raw,
-        "The detected animal's bounding box in detector pixels. Gated by "
-        "dev_discern_config's `area` threshold (6000), which the firmware "
-        "compares as a floor -- nothing below it was reported in 58 captured "
-        "detections. Nothing exceeded 921600 either, so the detector appears "
-        "to run on a 1280x720 frame."),
+        "On a LITTER BOX the detected animal's bounding box in detector "
+        "pixels: 2444..810810 across 429 detections, never above 921600, so "
+        "the detector appears to run on a 1280x720 frame. "
+        "dev_discern_config's `area` (6000) is NOT a hard floor -- a T5 "
+        "reported 5605 and 2444 -- so it gates something earlier than what "
+        "arrives here. "
+        "On a W7H it is a different quantity entirely: 0 or 100 and nothing "
+        "else, in all 442 fountain detections, which is not a pixel count. "
+        "Whatever it measures there has no source, so it is shown raw."),
     "score_info": _FieldSpec(
         "Recognition", _score_info,
         "The pet id we served in dev_discern_pic, plus a face-match score. NOT "
         "comparable with dev_discern_config's `score`, which is the "
         "body-detection floor on a different scale."),
     "score": _FieldSpec(
-        "Score", _raw, "Face-match similarity, observed 9..1846. Not the same "
-                       "quantity as dev_discern_config's `score` threshold."),
+        "Score", _raw, "Face-match similarity, observed 9..1846 on a litter "
+                       "box. Not the same quantity as dev_discern_config's "
+                       "`score` threshold. A W7H's `tracker_info[].pet_score` "
+                       "runs to 48609 over 577 entries -- whether that is the "
+                       "same scale is not established, so the two are not "
+                       "compared."),
     # -- times
     "time_in": _FieldSpec("Entered", _epoch),
     "time_out": _FieldSpec("Left", _epoch),
