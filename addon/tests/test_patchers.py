@@ -242,6 +242,41 @@ def test_talk_sink_file_installed_in_store():
     assert patcher_device_files(PATCHER_INFO) == [f"/system/{TALK_SINK_NAME}"]
 
 
+async def test_talk_apply_stages_sink_and_wrapper(monkeypatch, tmp_path):
+    """Drive the whole `talk` apply flow with the device I/O mocked but the real
+    `stage_file`/`cleanup_staged`.
+
+    This is the regression guard for a real bug: the talk branch called
+    `stage_file(name, data)` / `cleanup_staged(name)` while both require a
+    `device_id`, so every apply raised `TypeError` at the sink-staging step. No
+    apply-flow test existed to catch it. Running the branch with the real staging
+    helpers means a wrong arity raises here rather than only on a live device.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    from petkit_local.patchers.common import TALK_SINK_NAME, get_staged_path
+    from petkit_local.web.api import patchers as P
+
+    monkeypatch.setattr(P, "detect_patch_storage_dir", AsyncMock(return_value="/system"))
+    monkeypatch.setattr(P, "ensure_space_for", AsyncMock(return_value="space ok"))
+    monkeypatch.setattr(P, "send_run_cmd", AsyncMock(return_value="heartbeat"))
+    monkeypatch.setattr(P, "wait_for_heartbeat", AsyncMock(return_value=True))
+    monkeypatch.setattr(P.asyncio, "sleep", AsyncMock())
+
+    d = Device(device_type="t6", petkit_id=7654, serial_number="SN")
+    app = {"registry": MagicMock(), "bridge": None, "cfg": {"data_dir": str(tmp_path)}}
+
+    # The bug made this raise TypeError; it must complete and record talk active.
+    await P._patcher_apply(d, "talk", "192.168.1.50",
+                           "http://host/patcher/download/7654", MagicMock(), app)
+
+    assert "talk" in P._get_active_patchers(d)
+    # `get_staged_path` returns None once nothing is staged: the sink was staged
+    # and then cleaned up under THIS device's id, proving the id reached both
+    # stage_file and cleanup_staged (the two calls the bug omitted it from).
+    assert get_staged_path(TALK_SINK_NAME, 7654) is None
+
+
 def test_wrapper_all_three():
     w = generate_app_init_wrapper({"mqtt", "cacert", "camera"})
     assert "mount --bind /system/ctrl_patched /app/bin/ctrl" in w

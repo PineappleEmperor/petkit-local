@@ -353,7 +353,7 @@ async def _patcher_apply(d: Device, patcher_id: str, device_ip: str, download_ba
             d, device_ip, write_bytes=len(sink),
             targets=[sink_path, wrapper_path], bridge=bridge, mount=storage_dir))
 
-        stage_file(TALK_SINK_NAME, sink)
+        stage_file(TALK_SINK_NAME, sink, did)
         hub.publish("patcher", did, f"{P} uploading sink script to {sink_path}...")
         await send_run_cmd(
             d,
@@ -365,7 +365,7 @@ async def _patcher_apply(d: Device, patcher_id: str, device_ip: str, download_ba
             hub.publish("patcher", did, f"{P} sink upload timed out - staged file kept for retry")
         else:
             await asyncio.sleep(15)
-            cleanup_staged(TALK_SINK_NAME)
+            cleanup_staged(TALK_SINK_NAME, did)
 
     else:
         # camera writes no file of its own — but the wrapper below is still a
