@@ -62,10 +62,10 @@ EXPECTED_ENTITY_COUNTS = {
     # property post and nothing here read. No other litter box has it.
     "t3": 46, "t4": 46, "t5": 82, "t6": 89, "t7": 82,
     "feeder": 25, "feedermini": 25, "d3": 25, "d4": 25, "d4s": 25,
-    # +1 each on 2026-08-12: `enable_feed_video`, which pushes the three
-    # media-upload enables to a feeder that is already running rather than
-    # waiting for it to re-read its settings.
-    "d4h": 51, "d4sh": 55,
+    # 2026-08-12: replaced `enable_feed_video` button with individual switches
+    # (feed_picture, eat_video, voice_prompt, voice_disturb_mode, disturb_mode)
+    # and added selected_sound number + play_sound button. Net +6.
+    "d4h": 57, "d4sh": 61,
     "w4": 24, "w5": 24, "ctw2": 24, "ctw3": 24, "w7h": 84,
     "k2": 12, "k3": 12,
 }

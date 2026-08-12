@@ -1032,6 +1032,7 @@ FEED_SRC: dict[int, str] = {
 #: whether it names the cause or only the outcome is not settled.
 FEED_RESULT: dict[int, str] = {
     0: "dispensed",
+    3: "blocked",
     #: Seen twice in a D4SH capture, each time with `err_code: 7` on the same
     #: feed -- so it names a fault rather than an outcome, and what the fault
     #: IS has no source. Listed because rendering it as `error 7` implied we
@@ -1042,6 +1043,7 @@ FEED_RESULT: dict[int, str] = {
     #: err_code=0, real_amount=0/0. Distinct from 8 (which carries err_code=8).
     9: "no food",
     10: "skipped",
+    11: "nothing dispensed",
 }
 
 
@@ -1145,7 +1147,22 @@ FOUNTAIN_W7H_SET_FIELDS = frozenset({
 #: boxes and feeders send an `err` object too, but no source names their bits,
 #: so they are absent here and their flags render raw: the honest state, and
 #: the reason the lookup below falls back rather than raising.
+#: D4SH (camera feeder) error flags, from the `err{}` object in a state report.
+#: Confirmed on a live D4SH (fw 248, capture 2026-08-11): every state report
+#: carries these 7 keys (plus `serial` when the MCU serial link faults).
+FEEDER_CAMERA_ERROR_FLAGS: dict[str, str] = {
+    "DC": "DC power fault",
+    "sys": "System fault",
+    "rtc_c": "Clock fault",
+    "moto": "Motor fault",
+    "blk_f": "Food outlet blocked",
+    "blk_d": "Dispensing blocked",
+    "camera": "Camera fault",
+    "serial": "Serial communication fault",
+}
+
 ERROR_FLAGS: tuple[tuple[frozenset[str], dict[str, str]], ...] = (
+    (FEEDER_CAMERA, FEEDER_CAMERA_ERROR_FLAGS),
     (FOUNTAIN_NEXT_GEN, FOUNTAIN_W7H_ERROR_FLAGS),
 )
 

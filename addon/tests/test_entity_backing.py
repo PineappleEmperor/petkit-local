@@ -45,10 +45,9 @@ RUNTIME_DERIVED = {
 #: Each entry must name its evidence. Adding one without evidence defeats the
 #: whole test.
 UNSEEDED_BY_DESIGN = {
-    # Both appear as strings in real D4SH firmware (`ctrl`, `libbase.so`),
-    # unlike `feedTone`/`disturbMode`, which appear nowhere and were removed.
+    # `feedSound` is seeded for camera feeders but not for non-camera ones
+    # (d3, feeder, feedermini, d4, d4s) where the hardware is unconfirmed.
     "feedSound",
-    "surplusControl",
     # W7H. Each is a wire name the device's own `ctrl` registers a set handler
     # for, per the reverse-engineered settings map supplied 2026-07-31
     # (`wire_to_set_handler`), so the write lands. What the map does NOT give is

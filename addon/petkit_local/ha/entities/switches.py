@@ -126,15 +126,29 @@ FEEDER_SWITCHES = [
     EntityDef(component="switch", key="feed_sound", name="Feed Sound",
               value_path="settings.feedSound", icon="mdi:bell-ring"),
 ]
-# REMOVED (2026-07-29): `feed_tone` (settings.feedTone) and `disturb_mode`
-# (settings.disturbMode). Both came from the reference integration, which models
-# PetKit's CLOUD API rather than the device protocol, and NEITHER string appears
-# anywhere in real D4SH firmware — while every field kept above does. They were
-# published to every feeder and could never hold a value.
+# REMOVED (2026-07-29): `feed_tone` (settings.feedTone). Came from the reference
+# integration (cloud API, not device protocol) and the string appears nowhere in
+# real D4SH firmware.
+#
+# `disturbMode` was removed at the same time on the same reasoning but RESTORED
+# (2026-08-12): a D4SH proxy capture shows the cloud writing disturbMode 0/1 to
+# the device. The firmware may handle it through the generic
+# parse_recv_property_set_normal path. Moved to FEEDER_CAMERA_SWITCHES.
 
 FEEDER_CAMERA_SWITCHES = [
     EntityDef(component="switch", key="voice_dispense", name="Voice Dispense",
               value_path="settings.soundEnable", icon="mdi:account-voice"),
+    EntityDef(component="switch", key="feed_picture", name="Feed Picture",
+              value_path="settings.feedPicture", icon="mdi:camera-burst"),
+    EntityDef(component="switch", key="eat_video", name="Eat Video",
+              value_path="settings.eatVideo", icon="mdi:video"),
+    EntityDef(component="switch", key="voice_prompt", name="Voice Prompt",
+              value_path="settings.systemSoundEnable", icon="mdi:account-voice"),
+    EntityDef(component="switch", key="voice_disturb_mode", name="Quiet Voice Prompts",
+              value_path="settings.toneMode", icon="mdi:bell-off",
+              entity_category="config"),
+    EntityDef(component="switch", key="disturb_mode", name="Do Not Disturb",
+              value_path="settings.disturbMode", icon="mdi:bell-off"),
 
     EntityDef(component="switch", key="camera", name="Camera",
               value_path="settings.camera", icon="mdi:camera"),

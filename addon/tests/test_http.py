@@ -190,7 +190,8 @@ async def test_the_same_device_then_gets_its_mqtt_credentials():
                               data="id=400090690&sn=20241223G11497", headers=FORM)
         result = (await r.json())["result"]
         assert result, "no credentials at all"
-        assert result.get("deviceSecret") or result.get("productKey")
+        ali = result.get("ali", result)
+        assert ali.get("deviceSecret") or ali.get("productKey")
     finally:
         await client.close()
 
@@ -421,20 +422,21 @@ async def test_heartbeat_still_delivers_commands_while_clearing_the_flag():
         await client.close()
 
 
-async def test_esp32_iot_device_info_is_flat():
+async def test_all_iot_device_info_endpoints_return_ali_wrapped():
+    """The cloud returns ``{result: {ali: {...}}}`` for every device, including
+    those calling ``dev_iot_device_info`` (confirmed on a D4SH capture). The
+    previous flat format was an assumption from localkit that no capture
+    supported."""
     reg = DeviceRegistry()
     client = await _client(reg)
     try:
         await client.post("/6/t4/dev_signup", headers=HDR)
-        # ESP32 endpoint -> flat block, no `ali` wrapper
-        r = await client.post("/6/t4/dev_iot_device_info", headers=HDR)
-        res = (await r.json())["result"]
-        assert "ali" not in res
-        assert res["iotPlatform"] == "ALI"
-        assert res["productKey"] and res["deviceSecret"] and res["mqttHost"]
-        # Ingenic endpoint -> ali-wrapped
-        r2 = await client.post("/6/t4/dev_only_iot_device_info_v2", headers=HDR)
-        assert "ali" in (await r2.json())["result"]
+        for ep in ("dev_iot_device_info", "dev_only_iot_device_info_v2"):
+            r = await client.post(f"/6/t4/{ep}", headers=HDR)
+            res = (await r.json())["result"]
+            assert "ali" in res, f"{ep} should return ali-wrapped"
+            ali = res["ali"]
+            assert ali["productKey"] and ali["deviceSecret"] and ali["mqttHost"]
     finally:
         await client.close()
 

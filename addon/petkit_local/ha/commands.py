@@ -351,15 +351,11 @@ FEEDER_ACTIONS = {
         PROPERTY_SET_SUFFIX, make_mqtt_property_set({"desiccantTime": 0})),
     "food_replenished": lambda device: (
         PROPERTY_SET_SUFFIX, make_mqtt_property_set({"food": 1})),
-    # Push the media-upload enables at RUNTIME, rather than only seeding them
-    # in the settings block a device reads when it asks. This is what flips
-    # `g_config_feedPicture` on a feeder that is already running, so a camera
-    # feeder whose clips were never being staged starts uploading without
-    # waiting for its next `dev_device_info`. Same three fields
-    # `devices/defaults.py` now seeds.
-    "enable_feed_video": lambda device: (
-        PROPERTY_SET_SUFFIX,
-        make_mqtt_property_set({"feedPicture": 1, "eatVideo": 1, "upload": 1})),
+    "play_sound": lambda device: (
+        "play_sound",
+        _envelope("thing.service.play_sound", {
+            "soundId": (device.config.get("settings") or {}).get("selectedSound", -1),
+        })),
 }
 
 def _fountain_start(code: int) -> Command:

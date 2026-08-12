@@ -23,6 +23,14 @@ from typing import TYPE_CHECKING, Any
 
 from petkit_local.devices.base import encode_multi_range, split_bucket_authority
 from petkit_local.devices.defaults import default_settings, multi_config_ranges
+
+# Cloud deviceType per codename, confirmed from STS captures. The cloud
+# returns this in every capability[] entry. Only models with a capture
+# are listed; everything else defaults to 21 (T5).
+_DEVICE_TYPE_IDS: dict[str, int] = {
+    "t5": 21,
+    "d4sh": 25,
+}
 from petkit_local.devices.state_tables import CONSUMABLE_RECORD_KEY, SPRAY_TOTAL_DAYS
 from petkit_local.utils.coerce import to_float
 from petkit_local.utils.const import DEVICE_LOG_KEY_PREFIX
@@ -416,7 +424,7 @@ def to_oss_sts(device: Device, bucket_endpoint: str = "",
             continue  # toggled off: the device stops uploading this type at the source
         capability.append({
             "deviceId": device.petkit_id,
-            "deviceType": 21,
+            "deviceType": _DEVICE_TYPE_IDS.get(device.device_type.lower(), 21),
             "cycleType": ct,
             "cycle": 0,
             "cycleExpiration": far_future,

@@ -32,9 +32,7 @@ from petkit_local.http.middleware import (
     device_middleware, logging_middleware, never_fail_middleware, proxy_middleware,
 )
 from petkit_local.http.handlers.signup import handle_signup
-from petkit_local.http.handlers.iot_device_info import (
-    handle_iot_device_info, handle_iot_device_info_flat,
-)
+from petkit_local.http.handlers.iot_device_info import handle_iot_device_info
 from petkit_local.http.handlers.serverinfo import handle_serverinfo
 from petkit_local.http.handlers.state_report import handle_state_report
 from petkit_local.http.handlers.heartbeat import handle_heartbeat
@@ -100,8 +98,10 @@ def create_app(registry: DeviceRegistry, config: dict) -> web.Application:
     for ver in ("6",):
         p = f"/{ver}/{{device_type}}"
         app.router.add_route("*", f"{p}/dev_signup", handle_signup)
-        # dev_iot_device_info (ESP32) -> FLAT block; dev_only_* (Ingenic) -> ali-wrapped
-        app.router.add_route("*", f"{p}/dev_iot_device_info", handle_iot_device_info_flat)
+        # All three iot_device_info endpoints return the ali-wrapped block.
+        # The flat variant was wrong: cloud returns {ali: {...}} for every
+        # device, including those calling dev_iot_device_info (D4SH capture).
+        app.router.add_route("*", f"{p}/dev_iot_device_info", handle_iot_device_info)
         app.router.add_route("*", f"{p}/dev_only_iot_device_info", handle_iot_device_info)
         app.router.add_route("*", f"{p}/dev_only_iot_device_info_v2", handle_iot_device_info)
         app.router.add_route("*", f"{p}/dev_serverinfo", handle_serverinfo)
@@ -123,6 +123,7 @@ def create_app(registry: DeviceRegistry, config: dict) -> web.Application:
         app.router.add_route("*", f"{p}/dev_attire_over", handle_attire_over)
         app.router.add_route("*", f"{p}/dev_feed_get", handle_feed_get)
         app.router.add_route("*", f"{p}/dev_event_report", handle_event_report)
+        app.router.add_route("*", f"{p}/dev_upload_file_info", handle_upload_file_info)
         app.router.add_route("*", f"{p}/dev_upload_file_info_v2", handle_upload_file_info)
         app.router.add_route("*", f"{p}/dev_discern_pic", handle_discern_pic)
         app.router.add_route("*", f"{p}/dev_discern_config", handle_discern_config)

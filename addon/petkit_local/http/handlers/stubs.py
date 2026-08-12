@@ -62,15 +62,14 @@ async def handle_ota_check(request: web.Request) -> web.Response:
 
 
 async def handle_attire_over(request: web.Request) -> web.Response:
-    """`dev_attire_over` — answer with the captured stock value.
+    """`dev_attire_over` — acknowledge attire completion.
 
     Returns:
-        ``{"result": [0]}``, an ARRAY (see the module docstring on shapes). What
-        the device asks here and what it does with the answer have NOT been
-        confirmed, so the literal is left exactly as captured rather than being
-        made configurable or reasoned about.
+        ``{"result": 1}`` — an INTEGER. The real cloud returns ``1`` for a
+        D4SH (capture 2026-08-11); the previous ``[0]`` was copied from an
+        older capture and was wrong.
     """
-    return web.json_response({"result": [0]})
+    return web.json_response({"result": 1})
 
 
 async def handle_oss_sts(request: web.Request) -> web.Response:

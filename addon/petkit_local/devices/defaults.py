@@ -131,7 +131,9 @@ def default_settings(device: Device) -> dict[str, Any]:
     if device.is_feeder:
         base = {
             "manualLock": 0, "lightMode": 0, "foodWarn": 0,
-            "factor": 10,
+            "foodWarnRange": [480, 1200],
+            "surplusControl": 0, "surplusStandard": 2,
+            "numLimit": 5,
         }
         if device.is_camera:
             base.update({
@@ -139,8 +141,12 @@ def default_settings(device: Device) -> dict[str, Any]:
                 "timeDisplay": 1, "moveDetection": 1, "moveSensitivity": 1,
                 "petDetection": 1, "petSensitivity": 3,
                 "eatDetection": 1, "eatSensitivity": 3,
-                "soundEnable": 0, "systemSoundEnable": 0,
-                "volume": 4, "smartFrame": 1,
+                "soundEnable": 0, "systemSoundEnable": 1,
+                "volume": 7, "smartFrame": 1,
+                "toneMode": 0, "disturbMode": 0,
+                "feedSound": 0, "selectedSound": -1,
+                "detectInterval": 0,
+                "logSwitch": 1,
                 # The three enables a camera feeder needs before it will stage
                 # and upload a clip. `feedPicture` is the direct gate,
                 # `eatVideo` the eat-clip enable, `upload` the master switch —
@@ -209,7 +215,7 @@ def multi_config_ranges(device: Device) -> dict[str, Any]:
         if device.is_camera:
             keys += ("cameraMultiRange", "toneMultiRange")
     elif device.is_feeder and device.is_camera:
-        keys = ("detectMultiRange", "cameraMultiNew",
+        keys = ("detectMultiRange", "cameraMultiRange",
                 "toneMultiRange", "lightMultiRange")
     elif device.is_water_fountain:
         # Nine of these exist in the W7-262863 image; SEVEN are sent.
@@ -259,7 +265,6 @@ def schedule_targets(device: Device) -> list[dict[str, Any]]:
         "distrubMultiRange": "Cleaning Do Not Disturb",
         "toneMultiRange": "Voice Undisturbed Period",
         "cameraMultiRange": "Shooting Period",
-        "cameraMultiNew": "Shooting Period",
         "detectMultiRange": "Detection Period",
         # `aw` is addWater, from the firmware's own vocabulary. `wl` is NOT
         # resolved -- the image holds three `wl` tokens and none of them says
@@ -268,11 +273,7 @@ def schedule_targets(device: Device) -> list[dict[str, Any]]:
         "awDisturbMultiRange": "Water Top-Up Undisturbed Period",
         "wlDisturbMultiRange": "wlDisturb Undisturbed Period",
     }
-    # Both camera-gating fields are `weekly` objects. `cameraMultiNew` used to
-    # be listed as plain ranges here purely because that was the shape served
-    # for it; it now matches `MULTI_RANGE_DEFAULTS`, so the editor and the
-    # payload cannot disagree about what the device is being sent.
-    weekly = {"cameraMultiRange", "cameraMultiNew"}
+    weekly = {"cameraMultiRange"}
 
     targets = [
         {"target": key, "name": labels.get(key, key),

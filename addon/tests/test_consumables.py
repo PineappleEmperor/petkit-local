@@ -210,14 +210,14 @@ def test_a_camera_feeder_is_seeded_with_the_upload_enables():
 
 
 def test_the_camera_gating_schedule_is_sent_as_objects():
-    """`cameraMultiNew` gates recording on a camera feeder and its parser reads
-    `rpt`/`time` off each element. A bare `[[start, end]]` makes every lookup
-    null, so the table stays empty and the device reports `camera: 1` while
-    logging "camera not enable"."""
+    """`cameraMultiRange` gates recording on a camera feeder and its parser
+    reads `rpt`/`time` off each element. A bare `[[start, end]]` makes every
+    lookup null, so the table stays empty and the device reports `camera: 1`
+    while logging "camera not enable"."""
     from petkit_local.devices.defaults import multi_config_ranges
 
     ranges = multi_config_ranges(Device(device_type="d4sh", petkit_id=6))
-    entries = ranges["cameraMultiNew"]
+    entries = ranges["cameraMultiRange"]
     assert isinstance(entries[0], dict), "still the bare-range shape"
     assert "rpt" in entries[0] and "time" in entries[0]
 

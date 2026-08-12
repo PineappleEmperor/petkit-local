@@ -7,8 +7,6 @@ than an error, which leaves it dispensing nothing instead of retrying forever.
 """
 from __future__ import annotations
 
-import time
-
 from aiohttp import web
 
 from petkit_local.http.handlers._common import request_device
@@ -20,15 +18,16 @@ async def handle_feed_get(request: web.Request) -> web.Response:
     Returns:
         ``{"result": ...}`` — verbatim ``device.config["feed_schedule"]`` when
         one has been set, otherwise ``{"schedule": [{re, it, itemJsonString}],
-        "nextTick": <now+2h>, "latest": []}``: every day of the week enabled
-        with no meals in it, which schedules no feeding at all.
+        "nextTick": 7200, "latest": []}``: every day of the week enabled
+        with no meals in it, which schedules no feeding at all. ``nextTick``
+        is RELATIVE seconds (the device does ``now() + nextTick``), not a
+        timestamp — the cloud returns 86340.
     """
     device = request_device(request)
 
     if device and device.config.get("feed_schedule"):
         return web.json_response({"result": device.config["feed_schedule"]})
 
-    ts = int(time.time())
     return web.json_response({
         "result": {
             "schedule": [
@@ -38,7 +37,7 @@ async def handle_feed_get(request: web.Request) -> web.Response:
                     "itemJsonString": "[]",
                 },
             ],
-            "nextTick": ts + 7200,
+            "nextTick": 7200,
             "latest": [],
         }
     })
