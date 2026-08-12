@@ -242,21 +242,44 @@ FEEDER_BINARY_SENSORS = [
 # where nobody can say, the entity carries the device's own wording and no unit,
 # because a sensor that reads confidently and lies is one you would act on.
 
-FEEDER_NEXT_GEN_SENSORS = [
-    # A pair on the Dual-Hopper; a D4H reports only `food1`.
-    #
-    # 2 = has food and 0 = empty, reported by the owner, who never saw 1 in
-    # between. So this is not a percentage, and it is not a two-state either
-    # until somebody sees the middle value — hence a sensor with an enum rather
-    # than the binary "Food Low" the family already has. An unmapped value
-    # renders as the raw number (`_enum_sensor_value_template`), so a 1 that
-    # does turn up is visible rather than swallowed.
+#: The two hopper-level readings. DUAL-HOPPER ONLY, hence a D4SH-only list held
+#: apart from FEEDER_NEXT_GEN_SENSORS the way FEEDER_DUAL_BUTTONS/NUMBERS are.
+#:
+#: They must be a separate list, not shared-and-excluded: `model_excludes` filters
+#: only the family base, NOT `model_entities`, so excluding `hopper2_level` for a
+#: D4H (as the code used to) never actually removed it. A single-hopper feeder
+#: must simply not be GIVEN these — see `ha/categories.py`. A D4H is ASSUMED to
+#: report the singular `food` instead (shown by the family `food_low`); that is
+#: inference from the cloud model, unverified until a D4H is captured.
+#:
+#: 2 = has food and 0 = empty, reported by the D4SH owner, who never saw 1 in
+#: between. So this is not a percentage, and it is not a two-state either until
+#: somebody sees the middle value — hence an enum rather than the binary "Food
+#: Low" the family already has. An unmapped value renders as the raw number
+#: (`_enum_sensor_value_template`), so a 1 that does turn up is visible.
+FEEDER_DUAL_HOPPER_SENSORS = [
     EntityDef(component="sensor", key="hopper1_level", name="Hopper 1",
               value_path="state.food1", icon="mdi:silo",
               options=["Empty", "Has food"], option_values=[0, 2]),
     EntityDef(component="sensor", key="hopper2_level", name="Hopper 2",
               value_path="state.food2", icon="mdi:silo",
               options=["Empty", "Has food"], option_values=[0, 2]),
+]
+
+#: The single hopper-level reading for a one-hopper next-gen feeder (D4H). It is
+#: the dual `hopper1_level` with the "1" dropped and pointed at the singular
+#: `state.food` the rest of the feeder family uses.
+#:
+#: GUESSED: no D4H has ever reported here, so whether it sends `food` (like the
+#: single-hopper cloud model) or `food1` (like the D4SH it shares a `ctrl` with)
+#: is unverified. This bets on `food`. Same 0/2 enum as the dual sensors above.
+FEEDER_SINGLE_HOPPER_SENSORS = [
+    EntityDef(component="sensor", key="hopper_level", name="Hopper",
+              value_path="state.food", icon="mdi:silo",
+              options=["Empty", "Has food"], option_values=[0, 2]),
+]
+
+FEEDER_NEXT_GEN_SENSORS = [
     # Leftover food, and NO unit on purpose. The family's `food_bowl_pct` reads
     # the same key as a percentage, which it is not: -1 is the firmware's "not
     # measured" (`recv feed start leftover set(-1)`, logged as a feed begins),

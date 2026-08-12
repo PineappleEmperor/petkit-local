@@ -41,8 +41,8 @@ from petkit_local.ha.entities.selects import (
     FEEDER_SELECTS, FOUNTAIN_SELECTS, FOUNTAIN_W7H_SELECTS, LITTER_SELECTS,
 )
 from petkit_local.ha.entities.sensors import (
-    FEEDER_BINARY_SENSORS, FEEDER_NEXT_GEN_HALL_SENSORS,
-    FEEDER_NEXT_GEN_SENSORS, FEEDER_SENSORS,
+    FEEDER_BINARY_SENSORS, FEEDER_DUAL_HOPPER_SENSORS, FEEDER_NEXT_GEN_HALL_SENSORS,
+    FEEDER_NEXT_GEN_SENSORS, FEEDER_SINGLE_HOPPER_SENSORS, FEEDER_SENSORS,
     FOUNTAIN_BINARY_SENSORS, FOUNTAIN_SENSORS,
     FOUNTAIN_W7H_BINARY_SENSORS, FOUNTAIN_W7H_HALL_SENSORS, FOUNTAIN_W7H_SENSORS,
     LITTER_BINARY_SENSORS, LITTER_CAMERA_HALL_SENSORS, LITTER_CAMERA_SENSORS,
@@ -228,8 +228,16 @@ CATEGORY_SPECS: dict[str, CategorySpec] = {
         model_entities=(
             # The embedded-Linux feeders report a dozen fields the ESP32 ones
             # do not; `state_parsers.FEEDER_NEXT_GEN_FIELDS` is what fills them.
-            ("d4h", (*FEEDER_NEXT_GEN_SENSORS, *FEEDER_NEXT_GEN_HALL_SENSORS)),
-            ("d4sh", (*FEEDER_NEXT_GEN_SENSORS, *FEEDER_NEXT_GEN_HALL_SENSORS,
+            # The hopper-level sensors differ by hopper count: a D4H gets the
+            # single FEEDER_SINGLE_HOPPER_SENSORS (`hopper_level` -> `state.food`),
+            # a D4SH the dual FEEDER_DUAL_HOPPER_SENSORS (`hopper1/2_level` ->
+            # `food1`/`food2`), like the dual buttons/numbers beside it. The D4H
+            # side is GUESSED — no D4H has been captured; it bets on singular
+            # `food`, not the D4SH's `food1`. See FEEDER_SINGLE_HOPPER_SENSORS.
+            ("d4h", (*FEEDER_NEXT_GEN_SENSORS, *FEEDER_SINGLE_HOPPER_SENSORS,
+                     *FEEDER_NEXT_GEN_HALL_SENSORS)),
+            ("d4sh", (*FEEDER_NEXT_GEN_SENSORS, *FEEDER_DUAL_HOPPER_SENSORS,
+                      *FEEDER_NEXT_GEN_HALL_SENSORS,
                       *FEEDER_DUAL_BUTTONS, *FEEDER_DUAL_NUMBERS)),
         ),
         # Four controls a D4SH cannot fill, and the reason is the same for each:
@@ -247,12 +255,21 @@ CATEGORY_SPECS: dict[str, CategorySpec] = {
             ("d4sh", frozenset({
                 "food_low", "food_in_bowl", "food_bowl_pct", "battery_installed",
             })),
-            # A D4H reports one hopper, so its second-hopper sensor never fills.
-            # Everything else on the exclude list applies to it too — the two
-            # models share a `ctrl` and a state builder.
+            # GUESSED — no real D4H has ever reported to this add-on; the whole
+            # feeder mapping is extrapolated from the D4SH, which shares its
+            # `ctrl`. We model the D4H as a plain SINGLE-hopper feeder: it is
+            # ASSUMED to report the family's singular `food`, not the D4SH's
+            # `food1`/`food2`. So both entities that read `state.food` are KEPT —
+            # `food_low` (dropped in the D4SH row above) and the singular
+            # `hopper_level` from FEEDER_SINGLE_HOPPER_SENSORS in the row above —
+            # while the dual `hopper1/2_level` are simply never given to the D4H.
+            # This is inference, not evidence: if a captured D4H turns out to
+            # report `food1` like the D4SH, put `food_low` back in this set and
+            # swap FEEDER_SINGLE_HOPPER_SENSORS for FEEDER_DUAL_HOPPER_SENSORS in
+            # the `d4h` model_entities row. cf. DEVICE_TYPES_FEEDER_DUAL — the
+            # firmware-verified half of the split.
             ("d4h", frozenset({
-                "food_low", "food_in_bowl", "food_bowl_pct", "battery_installed",
-                "hopper2_level",
+                "food_in_bowl", "food_bowl_pct", "battery_installed",
             })),
         ),
     ),
