@@ -182,12 +182,17 @@ def test_wrapper_camera_never_uses_a_shell_placeholder():
 
 def test_wrapper_talk_only():
     """Talk is a pre-init block (like ssh), not a bind-mount: it starts an nc
-    listener that feeds the firmware's pktool, and it must be up before stock
-    init so the port is listening from boot."""
+    listener before stock init so the port is up from boot. The listener runs
+    the sink script installed in the patch store — the wrapper only references
+    it (by store path); it does NOT inline the script or write it at boot."""
     w = generate_app_init_wrapper({"talk"})
     assert "nc -l -p 9010" in w
-    assert "pktool play_aac" in w
-    assert "mount --bind" not in w  # talk replaces no binary
+    assert "/system/pktalk_sink.sh" in w  # references the installed sink
+    # The sink body (FIFO + heredoc) must NOT be inlined or written at boot;
+    # these markers appear only in the script itself, never in the comment.
+    assert "mknod" not in w
+    assert "PKSINK" not in w
+    assert "mount --bind" not in w        # talk replaces no binary
     lines = w.split("\n")
     talk_idx = next(i for i, l in enumerate(lines) if "nc -l -p 9010" in l)
     stock_idx = next(i for i, l in enumerate(lines)
@@ -196,12 +201,13 @@ def test_wrapper_talk_only():
 
 
 def test_wrapper_talk_leaves_no_format_placeholder():
-    """The talk block is built with f-strings and carries shell $vars, but the
-    wrapper still runs .format(store=) over every pre-init block — so a stray
-    brace would either raise or mangle the script."""
+    """The talk block references {store} and is built with f-strings, but the
+    wrapper runs .format(store=) over every pre-init block — so the store path
+    must be substituted and no literal placeholder may survive."""
     w = generate_app_init_wrapper({"talk"})
     assert "{store}" not in w
     assert "{TALK_TCP_PORT}" not in w
+    assert "{TALK_SINK_NAME}" not in w
 
 
 def test_wrapper_talk_composes_with_camera():
@@ -214,7 +220,15 @@ def test_wrapper_talk_composes_with_camera():
 def test_talk_patcher_is_registered():
     from petkit_local.web.api.patchers import ALL_PATCHERS
     assert "talk" in ALL_PATCHERS
-    assert ALL_PATCHERS["talk"]["files"] == []
+    assert ALL_PATCHERS["talk"]["files"] == ["pktalk_sink.sh"]
+
+
+def test_talk_sink_file_installed_in_store():
+    """The sink script is a real file in the patch store (not a /tmp heredoc), so
+    it must resolve to a store path and thus be deleted on removal."""
+    from petkit_local.patchers.common import TALK_SINK_NAME, patcher_device_files
+    from petkit_local.patchers.talk import PATCHER_INFO
+    assert patcher_device_files(PATCHER_INFO) == [f"/system/{TALK_SINK_NAME}"]
 
 
 def test_wrapper_all_three():

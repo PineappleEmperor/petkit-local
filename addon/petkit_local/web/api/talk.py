@@ -31,8 +31,10 @@ async def api_talk(request: web.Request) -> web.WebSocketResponse:
     Half-duplex by design: the panel mutes listening while talking, because the
     echo cancellation that made full duplex safe lived on the Agora path the
     camera patcher replaced. Needs the device IP (from a state report) and the
-    `talk` patcher applied; without the sink listening, ffmpeg's connect fails
-    and the session reports an error rather than hanging.
+    `talk` patcher applied; without the sink listening, ffmpeg's TCP connect
+    fails and it exits at once, so the session does not hang — but the audio is
+    dropped silently (ffmpeg's stderr is suppressed and its early exit is not
+    surfaced to the client yet).
     """
     reg = request.app["registry"]
     ws = web.WebSocketResponse(max_msg_size=4 * 1024 * 1024, heartbeat=25)
@@ -96,6 +98,10 @@ async def api_talk(request: web.Request) -> web.WebSocketResponse:
                     await start()
                 if ffmpeg and ffmpeg.stdin and not ffmpeg.stdin.is_closing():
                     ffmpeg.stdin.write(msg.data)
+                    # Apply backpressure: if the device sink stalls, ffmpeg stops
+                    # reading stdin and this awaits rather than buffering the
+                    # browser's stream without bound.
+                    await ffmpeg.stdin.drain()
             elif msg.type == aiohttp.WSMsgType.TEXT:
                 try:
                     evt = json.loads(msg.data)
@@ -112,7 +118,10 @@ async def api_talk(request: web.Request) -> web.WebSocketResponse:
                         await ws.send_json({"type": "stopped"})
             elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR):
                 break
-    except (asyncio.CancelledError, ConnectionResetError, RuntimeError):
+    except (asyncio.CancelledError, OSError, RuntimeError):
+        # OSError covers the transport failing under us: ConnectionReset and
+        # BrokenPipe (writing to an ffmpeg that has exited), and a missing ffmpeg
+        # binary — all handled the same way, with `stop()` in the finally.
         pass
     finally:
         await stop()

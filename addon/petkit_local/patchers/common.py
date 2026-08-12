@@ -507,11 +507,28 @@ BIND_MOUNT_TEMPLATES = {
 
 #: Two-way talk (intercom) audio sink. The panel's `/api/devices/{id}/talk`
 #: WebSocket transcodes the browser mic to 16 kHz mono ADTS-AAC and streams it
-#: to this TCP port on the device; the listener below feeds it to the firmware's
-#: own `pktool play_aac`, which owns the IMP speaker path. See patchers/talk.py.
+#: to this TCP port on the device; the sink script below feeds it to the
+#: firmware's own `pktool play_aac`, which owns the IMP speaker path. See
+#: patchers/talk.py.
 TALK_TCP_PORT = 9010
-#: The listener script the talk pre-init block writes to /tmp on each boot.
-TALK_SINK_SCRIPT = "/tmp/pktalk_sink.sh"
+#: The sink script is installed ONCE into the patch store (persistent, like
+#: dropbear) — so `talk` declares it in `files` and removal deletes it. Nothing
+#: is written to /tmp at boot; only the per-connection FIFO the script makes at
+#: runtime is ephemeral (named by the handler's PID).
+TALK_SINK_NAME = "pktalk_sink.sh"
+#: Body of that sink script. `nc -e /bin/sh <this>` runs it once per connection:
+#: it makes a private FIFO, starts `pktool play_aac` reading it, and copies the
+#: socket into the FIFO until the client hangs up. `$$` is the running sh's PID,
+#: so concurrent connections never collide on the pipe name.
+TALK_SINK_SCRIPT = (
+    "#!/bin/sh\n"
+    "F=/tmp/pktalk.$$\n"
+    "rm -f $F; mknod $F p\n"
+    "LD_LIBRARY_PATH=/syslib/lib:/app/lib:/system/lib:/usr/lib:/lib "
+    "/app/bin/pktool play_aac $F &\n"
+    "cat > $F\n"
+    "rm -f $F\n"
+)
 
 # Pre-init commands (run BEFORE stock app_init.sh is sourced).
 # SSH needs this — dropbear should be up even if stock init fails. Talk starts
@@ -526,20 +543,14 @@ PRE_INIT_BLOCKS = {
         "cp {store}/authorized_keys /tmp/.ssh/authorized_keys\n"
         "{store}/dropbear -r {store}/dbkey_ecdsa -p 22 &\n"
     ),
-    # No {store} in this block: the sink script is generated in /tmp, and nc +
-    # pktool are stock, so nothing of ours is uploaded (patchers/talk.py files=[]).
+    # The sink script is installed once into {store} at apply time (see
+    # TALK_SINK_NAME); this block only starts the listener that runs it — it
+    # writes nothing at boot. {store} is filled by generate_app_init_wrapper.
     "talk": (
         "# Two-way talk: a TCP audio sink. The add-on streams the browser mic\n"
-        f"# to TCP {TALK_TCP_PORT}; here it becomes speaker audio via pktool.\n"
-        f"cat > {TALK_SINK_SCRIPT} <<'PKSINK'\n"
-        "F=/tmp/pktalk.$$\n"
-        "rm -f $F; mknod $F p\n"
-        "LD_LIBRARY_PATH=/syslib/lib:/app/lib:/system/lib:/usr/lib:/lib "
-        "/app/bin/pktool play_aac $F &\n"
-        "cat > $F\n"
-        "rm -f $F\n"
-        "PKSINK\n"
-        f"( while true; do nc -l -p {TALK_TCP_PORT} -e /bin/sh {TALK_SINK_SCRIPT}; "
+        f"# to TCP {TALK_TCP_PORT}; the sink script (installed in the patch\n"
+        "# store) hands it to pktool play_aac -> media -> speaker.\n"
+        f"( while true; do nc -l -p {TALK_TCP_PORT} -e /bin/sh {{store}}/{TALK_SINK_NAME}; "
         "sleep 1; done ) &\n"
     ),
 }
