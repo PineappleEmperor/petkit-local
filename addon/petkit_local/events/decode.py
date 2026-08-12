@@ -55,13 +55,28 @@ TRIGGER_SHORT: dict[int, str] = {
     3: "Manual",
 }
 
+#: How a CLEANING cycle ended, and only a cleaning cycle -- see
+#: `_result_field` for why this table must not be read as a global enum.
+#:
+#: `4` is the bin stopping the cycle: it appears in a capture of four device
+#: families ONLY alongside `err: "full"` (T5 twice, T6 once) and in no other
+#: context. It used to read "canceled (kitten mode)", which was never a wire
+#: meaning at all -- the slot was borrowed as a lookup constant for a DIFFERENT
+#: case, `result == 3` with a `kitten` flag, and then a real `4` arrived from a
+#: box with a full bin and inherited the wrong label. Kitten mode now has
+#: `RESULT_KITTEN` and this table only describes values devices actually send.
 RESULT: dict[int, str] = {
     0: "completed",
     1: "terminated",
     2: "failed",
     3: "canceled",
-    4: "canceled (kitten mode)",
+    4: "stopped (bin full)",
 }
+
+#: Not a wire value: the label for `result == 3` when `content.kitten` is set.
+#: Kept out of `RESULT` so a real `3` still reads "canceled" and a real `4`
+#: cannot pick this up by accident.
+RESULT_KITTEN = "canceled (kitten mode)"
 
 #: Hall-sensor and bin faults. `hallB` is ours -- 16 captures, present in no
 #: reference table -- and is graded a step lower than its documented siblings.
@@ -306,8 +321,21 @@ def _err_field(value: Any) -> tuple[str, str]:
 def _result_field(value: Any) -> tuple[str, str]:
     """`result`, keeping unmapped values visible instead of blank.
 
-    Values 5 and 7 occur in the captures and are outside the documented 0..4,
-    so they must not silently read as success.
+    `RESULT` describes a CLEANING cycle. `result` is NOT one enum across the
+    protocol — the same field carries a different vocabulary per event, exactly
+    as `event_type` does per device category. Observed in one capture of four
+    families::
+
+        clean_over      0, 4          ble_relay_over   0, 1, 2, 6
+        feed_over       0, 7, 10      add_water_over   0, 5, 18
+        reset_over      2 (T6), 5 (T5)
+
+    So `ble_relay_over result=1` is not "terminated" and `2` is not "failed" —
+    those labels come from the litter table and nothing supports them here.
+    Values outside `RESULT` render as `result {n}` and are graded UNVERIFIED
+    rather than being dressed up in a cleaning cycle's vocabulary. Splitting
+    this per event needs a source for each family's meanings; until then the
+    raw number is the honest answer.
     """
     return _enum(RESULT, value, "result {n}")
 
@@ -601,7 +629,7 @@ def event_label(event_type: str | None,
         else:
             outcome, _ = _result_field(result)
             if result == 3 and (content or {}).get("kitten"):
-                outcome = RESULT[4]
+                outcome = RESULT_KITTEN
             label = f"{trigger} {noun} {outcome}" if trigger \
                 else f"{noun} {outcome}"
     elif code.mode_from:

@@ -16,6 +16,8 @@ from aiohttp.test_utils import TestClient, TestServer, make_mocked_request
 from petkit_local.config import PANEL_LIVE_KEYS
 from petkit_local.devices.registry import DeviceRegistry
 from petkit_local.devices.ble import BLERegistry
+from petkit_local.ha.categories import get_entities_for_device
+from petkit_local.ha.commands import ALL_ACTIONS
 from petkit_local.web.hub import EventHub
 from petkit_local.web.api.settings import LIVE_SETTINGS
 from petkit_local.web.panel import create_panel_app
@@ -367,6 +369,71 @@ async def test_command_sender_queues_without_bridge():
         assert reg.get(1).command_queue  # queued
     finally:
         await c.close()
+
+
+async def test_action_form_records_a_consumable_reset_like_the_entity_form():
+    """Pressing Reset N50 in the PANEL has to stamp the date, as HA's does.
+
+    The panel posts `{"action": ...}` and Home Assistant goes through
+    `handle_ha_command`; when those were two code paths only the second
+    recorded the replacement date, and for the N50 that record is the
+    countdown's only possible source (the device has no field for it). The
+    symptom was a Reset N50 button that sent its device command and changed
+    nothing anybody could see.
+    """
+    reg = DeviceRegistry()
+    reg.get_or_create(petkit_id=1, device_type="t5", serial_number="SN")
+    app, reg, hub = _panel(reg=reg, bridge=None)
+    c = await _mk_client(app)
+    try:
+        r = await c.post("/api/devices/1/command", data=json.dumps({"action": "reset_n50"}))
+        assert (await r.json())["ok"]
+        assert reg.get(1).config["consumables"]["n50"] > 0
+    finally:
+        await c.close()
+
+
+async def test_action_and_entity_forms_have_the_same_side_effects():
+    """The two request forms are the same press and must stay interchangeable.
+
+    Compared on the SHAPE of what each left behind — which config keys, which
+    consumables — rather than the values, because a reset stamps `time.time()`
+    and the envelope carries an epoch id, so two calls a millisecond apart are
+    legitimately different.
+    """
+    def _shape(dev):
+        cfg = {k: sorted(v) if isinstance(v, dict) else "set" for k, v in dev.config.items()}
+        return sorted(cfg.items())
+
+    for device_type in ("t5", "t6", "d4sh", "w7h"):
+        probe = DeviceRegistry().get_or_create(petkit_id=1, device_type=device_type)
+        keys = [e.key for e in get_entities_for_device(probe)
+                if e.component == "button" and e.key in ALL_ACTIONS]
+        assert keys, f"no button actions for {device_type} — test would prove nothing"
+
+        for key in keys:
+            reg_a, reg_b = DeviceRegistry(), DeviceRegistry()
+            reg_a.get_or_create(petkit_id=1, device_type=device_type, serial_number="SN")
+            reg_b.get_or_create(petkit_id=1, device_type=device_type, serial_number="SN")
+            app_a, reg_a, _ = _panel(reg=reg_a, bridge=None)
+            app_b, reg_b, _ = _panel(reg=reg_b, bridge=None)
+            ca, cb = await _mk_client(app_a), await _mk_client(app_b)
+            try:
+                ra = await ca.post("/api/devices/1/command",
+                                   data=json.dumps({"action": key}))
+                rb = await cb.post("/api/devices/1/command",
+                                   data=json.dumps({"entity": key, "value": ""}))
+                oa, ob = await ra.json(), await rb.json()
+                assert oa.get("ok") and ob.get("ok"), f"{device_type}/{key}: {oa} {ob}"
+                assert oa.get("suffix") == ob.get("suffix"), f"{device_type}/{key}"
+                if "envelope" in oa and "envelope" in ob:
+                    assert oa["envelope"].get("method") == ob["envelope"].get("method")
+                    assert oa["envelope"].get("params") == ob["envelope"].get("params")
+                assert _shape(reg_a.get(1)) == _shape(reg_b.get(1)), \
+                    f"{device_type}/{key} left different state behind"
+            finally:
+                await ca.close()
+                await cb.close()
 
 
 async def test_command_sender_uses_bridge_when_connected():
