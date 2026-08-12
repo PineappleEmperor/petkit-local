@@ -191,8 +191,13 @@ async def api_event_detail(request: web.Request) -> web.Response:
             "firmware": code.firmware, "note": code.note,
         } if code else None,
         "decoded": [
+            # `epoch` tells the panel to render this row's `raw` itself. The
+            # server formats in the CONTAINER's timezone and the Timeline
+            # headers format in the BROWSER's, so an install whose container
+            # runs UTC showed one instant twice, hours apart, in adjacent rows.
             {"key": f.key, "label": f.label, "raw": f.raw,
-             "text": f.text, "grade": f.grade, "note": f.note}
+             "text": f.text, "grade": f.grade, "note": f.note,
+             "epoch": f.key in decode.EPOCH_FIELDS}
             for f in decode.decode_content(event_type, content, device_type)
         ],
         "content": content,

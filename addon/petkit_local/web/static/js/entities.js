@@ -110,8 +110,11 @@ function controlRow(id, e, kind) {
     const pending = PENDING_EDITS.get(editKey(id, e.key));
     const device = secondsToClock(e.value);
     const shown = pending !== undefined ? pending : device;
+    // `step` in SECONDS, and a minute by default: every value these fields have
+    // ever carried is minute-aligned (13:00, 12:00, 08:15), so a seconds
+    // spinner offered a precision the schedule does not have.
     return `<label class="ctrl"><span>${nm}</span>
-      <span class="cn"><input type="time" step="1" class="${pending !== undefined ? 'dirty' : ''}" value="${esc(shown)}"
+      <span class="cn"><input type="time" step="${esc(e.step || 60)}" class="${pending !== undefined ? 'dirty' : ''}" value="${esc(shown)}"
         data-input="entity-number" data-id="${esc(id)}" data-key="${esc(e.key)}" data-device-value="${esc(device)}">
       <button class="mini" data-action="set-entity-time" data-id="${esc(id)}" data-key="${esc(e.key)}"${k}>Set</button></span></label>`;
   }

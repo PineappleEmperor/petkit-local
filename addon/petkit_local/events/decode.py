@@ -540,6 +540,17 @@ def decode_content(event_type: str | None,
     return fields
 
 
+#: Keys whose value is a UNIX timestamp, derived from the field table rather
+#: than listed again so the two cannot drift.
+#:
+#: The panel needs to know which rows these are because it renders them itself:
+#: `_epoch` formats in the SERVER's timezone, and the Timeline card headers
+#: format in the BROWSER's, so a container in UTC and a browser in CEST showed
+#: the same instant twice, two hours apart, in adjacent rows of one table.
+#: One page, one timezone — the reader's.
+EPOCH_FIELDS = frozenset(k for k, s in _FIELDS.items() if s.render is _epoch)
+
+
 def summary_bits(event_type: str | None,
                  content: dict[str, Any] | None) -> list[str]:
     """Short facts worth putting on the Timeline card itself.

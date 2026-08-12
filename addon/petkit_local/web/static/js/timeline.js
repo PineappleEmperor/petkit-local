@@ -128,10 +128,16 @@ function reconcile(container, items) {
   }
 }
 
+// One chip per bucket `sessions.filter_counts` fills. Feeding, drinking and
+// cleaning used to have no chip, so a feeder's and a fountain's cards belonged
+// to no filter at all — visible under "All" and unreachable from anywhere else.
 const TL_FILTERS = [
   ['all', 'All'],
   ['pet', 'Pet'],
   ['toileting', 'Toileting'],
+  ['feeding', 'Feeding'],
+  ['drinking', 'Drinking'],
+  ['cleaning', 'Cleaning'],
   ['health_alert', 'Health Alert'],
   ['fault', 'Faults'],
 ];
@@ -364,6 +370,17 @@ function dbgGrade(g) {
   return `<span class="tl-grade ${esc(g || 'unknown')}">${esc(g || 'unknown')}</span>`;
 }
 
+// A timestamp row is rendered HERE, from its raw epoch, so the whole page
+// speaks one timezone: the reader's. The server's own formatting uses the
+// container's zone, which on an install running UTC put "12:19:58 +0000" one
+// row below a card headed "2:20:19 PM" — the same instant, described twice,
+// two hours apart. Anything the server did not flag keeps its rendered text.
+function fieldText(f) {
+  if (!f.epoch) return f.text;
+  const n = Number(f.raw);
+  return Number.isFinite(n) && n > 0 ? new Date(n * 1000).toLocaleString() : f.text;
+}
+
 function dbgBody(d) {
   if (!d) return '<p class="mut">loading…</p>';
   if (d.error) return `<p class="mut">${esc(d.error)}</p>`;
@@ -374,7 +391,7 @@ function dbgBody(d) {
     .map(
       f =>
         `<tr>
-      <td>${esc(f.label)}</td><td><b>${esc(f.text)}</b></td>
+      <td>${esc(f.label)}</td><td><b>${esc(fieldText(f))}</b></td>
       <td class="mut"><code>${esc(JSON.stringify(f.raw))}</code></td>
       <td>${dbgGrade(f.grade)}</td></tr>` +
         (f.note
