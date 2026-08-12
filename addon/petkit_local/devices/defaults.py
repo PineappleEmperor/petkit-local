@@ -215,7 +215,14 @@ def multi_config_ranges(device: Device) -> dict[str, Any]:
         if device.is_camera:
             keys += ("cameraMultiRange", "toneMultiRange")
     elif device.is_feeder and device.is_camera:
-        keys = ("detectMultiRange", "cameraMultiRange",
+        # `cameraMultiNew`, NOT `cameraMultiRange`: the D4SH parser is
+        # `pk_parse_cameraMultiNew_func`, which keys on `cameraMultiNew` and
+        # saves it into its internal `cameraMultiRange`. Serving the internal
+        # name (as PR #18 briefly did) reaches no parser, so the recording
+        # window stays empty, the camera never arms (`cameraStatus` 0), and
+        # every feed reports `media: 0` — confirmed live on a D4SH: pushing
+        # `cameraMultiNew` flips `cameraStatus` to 1 and recording resumes.
+        keys = ("detectMultiRange", "cameraMultiNew",
                 "toneMultiRange", "lightMultiRange")
     elif device.is_water_fountain:
         # Nine of these exist in the W7-262863 image; SEVEN are sent.
@@ -265,6 +272,7 @@ def schedule_targets(device: Device) -> list[dict[str, Any]]:
         "distrubMultiRange": "Cleaning Do Not Disturb",
         "toneMultiRange": "Voice Undisturbed Period",
         "cameraMultiRange": "Shooting Period",
+        "cameraMultiNew": "Shooting Period",
         "detectMultiRange": "Detection Period",
         # `aw` is addWater, from the firmware's own vocabulary. `wl` is NOT
         # resolved -- the image holds three `wl` tokens and none of them says
@@ -273,7 +281,7 @@ def schedule_targets(device: Device) -> list[dict[str, Any]]:
         "awDisturbMultiRange": "Water Top-Up Undisturbed Period",
         "wlDisturbMultiRange": "wlDisturb Undisturbed Period",
     }
-    weekly = {"cameraMultiRange"}
+    weekly = {"cameraMultiRange", "cameraMultiNew"}
 
     targets = [
         {"target": key, "name": labels.get(key, key),
