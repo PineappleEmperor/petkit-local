@@ -36,6 +36,7 @@ from petkit_local.patchers.ssh import (
     ARCH_TO_BINARY as SSH_ARCH_TO_BINARY,
     DBKEY_RESERVE_BYTES, dropbear_path_for,
 )
+from petkit_local.patchers.talk import PATCHER_INFO as TALK_PATCHER
 from petkit_local.patchers.verify import assert_download_plausible, elf_arch
 from petkit_local.web.api._common import _device_or_404, _json_body
 
@@ -53,7 +54,7 @@ log = logging.getLogger(__name__)
 _PATCHER_LOCKS: dict[int, asyncio.Lock] = {}
 
 ALL_PATCHERS: dict[str, dict[str, Any]] = {
-    p["id"]: p for p in [MQTT_PATCHER, CLOUD_PATCHER, CACERT_PATCHER, CAMERA_PATCHER, SSH_PATCHER]
+    p["id"]: p for p in [MQTT_PATCHER, CLOUD_PATCHER, CACERT_PATCHER, CAMERA_PATCHER, SSH_PATCHER, TALK_PATCHER]
 }
 
 

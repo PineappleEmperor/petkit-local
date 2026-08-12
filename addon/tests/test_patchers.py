@@ -180,6 +180,43 @@ def test_wrapper_camera_never_uses_a_shell_placeholder():
     assert "fake_daemon" not in w
 
 
+def test_wrapper_talk_only():
+    """Talk is a pre-init block (like ssh), not a bind-mount: it starts an nc
+    listener that feeds the firmware's pktool, and it must be up before stock
+    init so the port is listening from boot."""
+    w = generate_app_init_wrapper({"talk"})
+    assert "nc -l -p 9010" in w
+    assert "pktool play_aac" in w
+    assert "mount --bind" not in w  # talk replaces no binary
+    lines = w.split("\n")
+    talk_idx = next(i for i, l in enumerate(lines) if "nc -l -p 9010" in l)
+    stock_idx = next(i for i, l in enumerate(lines)
+                     if l.strip().startswith(". /app/script/app_init.sh"))
+    assert talk_idx < stock_idx
+
+
+def test_wrapper_talk_leaves_no_format_placeholder():
+    """The talk block is built with f-strings and carries shell $vars, but the
+    wrapper still runs .format(store=) over every pre-init block — so a stray
+    brace would either raise or mangle the script."""
+    w = generate_app_init_wrapper({"talk"})
+    assert "{store}" not in w
+    assert "{TALK_TCP_PORT}" not in w
+
+
+def test_wrapper_talk_composes_with_camera():
+    w = generate_app_init_wrapper({"talk", "camera"})
+    assert "nc -l -p 9010" in w
+    assert "mount --bind /app/bin/tserver /app/bin/agora" in w
+    assert ". /app/script/app_init.sh" in w
+
+
+def test_talk_patcher_is_registered():
+    from petkit_local.web.api.patchers import ALL_PATCHERS
+    assert "talk" in ALL_PATCHERS
+    assert ALL_PATCHERS["talk"]["files"] == []
+
+
 def test_wrapper_all_three():
     w = generate_app_init_wrapper({"mqtt", "cacert", "camera"})
     assert "mount --bind /system/ctrl_patched /app/bin/ctrl" in w
