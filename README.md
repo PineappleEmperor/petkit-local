@@ -79,6 +79,7 @@ other model below is inference until the same is true of it.
 | Purobot Ultra | T6 | ✅ | ✅ |
 | EverSweet Ultra AI | W7H | ✅ | ✅ |
 | EverSweet Max Cordless | CTW3 † | — | — |
+| YumShare Dual-Hopper | D4SH | ✅ | — |
 
 Confirmed is not the same as complete: there can still be bugs, and features that are missing.
 
@@ -103,7 +104,6 @@ to sit at "unknown".
 | Pura Max | T4 | — | — |
 | YumShare Solo | D4H | ✅ | — |
 | YumShare Solo 2 | D4H | ✅ | ✅ |
-| YumShare Dual-Hopper | D4SH | ✅ | — |
 | YumShare Dual-Hopper 2 | D4SH | ✅ | ✅ |
 | Fresh Element Solo | D4 | — | — |
 | Feeder D3 / D4s | D3, D4S | — | — |
