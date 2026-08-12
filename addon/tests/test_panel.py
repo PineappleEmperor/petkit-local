@@ -191,6 +191,27 @@ async def test_devices_tab_is_one_collapsible_panel_per_device():
         await c.close()
 
 
+async def test_the_timeline_container_is_left_with_nothing_but_our_own_nodes():
+    """`index.html` ships `#timelineView` with a "…" placeholder, and it is a
+    TEXT node. Reassigning innerHTML used to wipe it; inserting elements beside
+    it does not, so it surfaced between the controls and the first card."""
+    js = _panel_js()
+    html = (Path(__file__).resolve().parents[1] / "petkit_local" / "web"
+            / "templates" / "index.html").read_text()
+    assert 'id="timelineView"' in html
+    # Whatever the placeholder is, the renderer must clear what is not its own.
+    assert "node !== controls && node !== list" in js
+
+
+async def test_a_filter_chip_with_no_events_is_not_shown():
+    """Eight chips did not fit the card. A device family that produced nothing
+    contributes a permanent zero, and the selected chip has to stay visible or
+    there would be no way back off it."""
+    js = _panel_js()
+    assert "function visibleFilters(" in js
+    assert "k === 'all' || k === TL_FILTER" in js
+
+
 async def test_timeline_refresh_does_not_rebuild_the_whole_view():
     """The Timeline reruns 400ms after every event and media frame.
 

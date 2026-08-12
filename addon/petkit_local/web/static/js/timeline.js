@@ -142,7 +142,15 @@ const TL_FILTERS = [
   ['fault', 'Faults'],
 ];
 
-function controlsHtml(ds, pets) {
+// Which chips are worth the width. A device family that produced nothing today
+// contributes a permanent zero, and eight of those pushed the row off the edge
+// of the card — so a chip with no events is only shown while it is the one
+// selected, which it has to be or you could not get back off it.
+function visibleFilters(counts) {
+  return TL_FILTERS.filter(([k]) => k === 'all' || k === TL_FILTER || (counts && counts[k]));
+}
+
+function controlsHtml(ds, pets, counts) {
   return `<div class="card" data-tlkey="controls">
     <div class="row" style="align-items:center;margin-bottom:10px">
       <button class="ghost act" data-action="tl-shift" data-n="-1">◂</button>
@@ -167,7 +175,12 @@ function controlsHtml(ds, pets) {
     }
     <div class="row tl-filterbar" style="align-items:center">
       <div class="chips">
-        ${TL_FILTERS.map(([k, label]) => `<button class="chip-btn" data-action="tl-filter" data-k="${k}">${esc(label)}<span class="chip-n"></span></button>`).join('')}
+        ${visibleFilters(counts)
+          .map(
+            ([k, label]) =>
+              `<button class="chip-btn" data-action="tl-filter" data-k="${k}">${esc(label)}<span class="chip-n"></span></button>`,
+          )
+          .join('')}
       </div>
       <span class="grow"></span>
       <label class="mut tl-dbgtog"><input type="checkbox" data-change="tl-debug"> Debug info</label>
@@ -219,7 +232,7 @@ async function loadTimeline() {
   let controls = v.querySelector('[data-tlkey="controls"]');
   // Only the option list and the chip set justify rebuilding this card; the
   // selections and counts are patched in place below.
-  const shape = controlsHtml(ds, pets);
+  const shape = controlsHtml(ds, pets, data.counts);
   if (!controls || TL_CARD_HTML.get('controls') !== shape) {
     const tmp = document.createElement('div');
     tmp.innerHTML = shape;
@@ -236,6 +249,13 @@ async function loadTimeline() {
     list = document.createElement('div');
     list.id = 'tlList';
     v.appendChild(list);
+  }
+  // The container ships with a "…" placeholder in index.html, and it is a TEXT
+  // node. Reassigning innerHTML used to wipe it; inserting our own elements
+  // beside it does not, so it sat between the controls and the first card.
+  // Anything here that is not ours is left over from before we owned the view.
+  for (const node of [...v.childNodes]) {
+    if (node !== controls && node !== list) node.remove();
   }
   const items = data.sessions.length
     ? data.sessions.map(s => ({ key: 's' + s.id, html: sessionCard(s) }))
