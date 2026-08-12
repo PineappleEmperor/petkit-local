@@ -1044,6 +1044,17 @@ FEED_SRC: dict[int, str] = {
 #: Keyed by `content.result` in a feed_over event. NOT `err_code` — the two are
 #: parallel fields that carry different things (`err_code` names the fault,
 #: `result` names the outcome).
+#:
+#: Grading per value:
+#:   0  confirmed — normal completion, amounts > 0
+#:   3  inferred — co-occurs with err_code=4 and zero amounts (capture 2026-08-11)
+#:   7  inferred — co-occurs with err_code=7 (two captures)
+#:   8  inferred — co-occurs with err_code=8, single observation (issue #2)
+#:   9  inferred — firmware sets real_amount=-1 and skips the motor (disasm
+#:      0x426e40), every capture has food1=0/food2=0
+#:  10  inferred — every capture carries surplus_standard=1, firmware reads a
+#:      config field before the branch (disasm 0x427be0), likely surplus control
+#:  11  unverified — observed on a live D4SH, not yet traced in disassembly
 FEED_RESULT: dict[int, str] = {
     0: "completed",
     3: "blocked (outlet obstructed)",
