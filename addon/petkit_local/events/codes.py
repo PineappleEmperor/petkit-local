@@ -459,6 +459,21 @@ FEEDER_HTTP_CODES: dict[str, EventCode] = {
              "(same kind, simpler shape, from the D4H firmware RE); "
              "which code a given model sends is not yet settled.",
     ),
+    "5": EventCode(
+        kind=KIND_FEEDING, label="Eating started", detail=True,
+        role=ROLE_START, grade=INFERRED, families=FEEDER_CAMERA,
+        note="Snapshot event on a live D4SH (fw 248, HTTP), content "
+             "{img, aesKey, mark, start_time} — same shape as codes 7 and 8. "
+             "Read as `eat_start` by the device's OWNER from the attached "
+             "recordings (proxy was off, so not from the app's own labels): "
+             "the clip shows eating beginning. Seen once, ~9 s before a "
+             "feed_over (code 4) at 18:21. The matching firmware pack function "
+             "is pk_event_pack_eat_start_event_msg, but its HTTP event_type "
+             "is not literal in the binary, so the number-to-name link is the "
+             "owner's, not the RE's. NOTE codes are PER CATEGORY: 5 is "
+             "`drink_start` on a fountain and something else again on a litter "
+             "box.",
+    ),
     "7": EventCode(
         kind=KIND_MOTION, label="Motion detected", anchor=True,
         families=FEEDER_CAMERA,
@@ -470,6 +485,21 @@ FEEDER_HTTP_CODES: dict[str, EventCode] = {
              "The firmware has both pk_event_pack_move_event_msg and "
              "pk_event_pack_pet_event_msg; which one produces this code "
              "is not resolved.",
+    ),
+    "8": EventCode(
+        kind=KIND_PET, label="Pet detected", anchor=True, grade=INFERRED,
+        families=FEEDER_CAMERA,
+        note="Snapshot event on a live D4SH (fw 248, HTTP), content "
+             "{img, aesKey, mark, start_time} — same shape as codes 5 and 7. "
+             "Read as `pet` (pet appeared) by the device's OWNER from the "
+             "attached recordings (proxy was off, not the app's labels): the "
+             "clip shows the cat. Seen both around feeds (18:21) and standing "
+             "alone well after them (18:29, 21:06), which fits pet appearance "
+             "rather than the feed sequence. Firmware sibling is "
+             "pk_event_pack_pet_event_msg; the HTTP event_type is not literal "
+             "in the binary, so the number-to-name link is the owner's, not "
+             "the RE's. Code 8 is `err_over`-adjacent on other categories — "
+             "these numbers are per-category.",
     ),
 }
 
