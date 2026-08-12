@@ -175,3 +175,48 @@ def test_a_settings_write_does_not_shrink_the_served_block():
 
     assert full <= set(served), "defaults were dropped by a single write"
     assert served["manualLock"] == 1, "the stored value must win over the default"
+
+
+def test_a_camera_feeder_is_told_its_cloud_storage_is_active():
+    """`capacity[]`/`cloudProduct` gate cloud storage on EVERY camera.
+
+    They were sent only to camera litter boxes, so a camera feeder recorded a
+    feed clip and never staged or uploaded it — `ctrl` logs "feed not upload
+    pic and video ..." and the event reports `media: 0`. Found independently
+    on a D4H and a D4SH.
+    """
+    from petkit_local.devices.payloads import to_device_info
+
+    for device_type in ("d4h", "d4sh", "t5"):
+        served = to_device_info(Device(device_type=device_type, petkit_id=3))["result"]
+        assert served.get("capacity"), f"{device_type} got no capacity block"
+        assert served.get("cloudProduct"), f"{device_type} got no cloudProduct"
+
+    # A non-camera feeder has no cloud storage to enable, and must not be told
+    # it has: the block would be describing a service the hardware lacks.
+    plain = to_device_info(Device(device_type="d4", petkit_id=4))["result"]
+    assert "capacity" not in plain and "cloudProduct" not in plain
+
+
+def test_a_camera_feeder_is_seeded_with_the_upload_enables():
+    """The device never reports these, and `to_device_info` serves seeds back,
+    so an absent key reads to the firmware as a zero."""
+    from petkit_local.devices.defaults import default_settings
+
+    seeded = default_settings(Device(device_type="d4sh", petkit_id=5))
+    assert seeded["feedPicture"] == 1
+    assert seeded["eatVideo"] == 1
+    assert seeded["upload"] == 1
+
+
+def test_the_camera_gating_schedule_is_sent_as_objects():
+    """`cameraMultiNew` gates recording on a camera feeder and its parser reads
+    `rpt`/`time` off each element. A bare `[[start, end]]` makes every lookup
+    null, so the table stays empty and the device reports `camera: 1` while
+    logging "camera not enable"."""
+    from petkit_local.devices.defaults import multi_config_ranges
+
+    ranges = multi_config_ranges(Device(device_type="d4sh", petkit_id=6))
+    entries = ranges["cameraMultiNew"]
+    assert isinstance(entries[0], dict), "still the bare-range shape"
+    assert "rpt" in entries[0] and "time" in entries[0]

@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from petkit_local.devices.base import Device
 from petkit_local.ha.discovery import EntityDef
 from petkit_local.ha.entities.buttons import (
-    FEEDER_BUTTONS, FEEDER_DUAL_BUTTONS,
+    FEEDER_BUTTONS, FEEDER_CAMERA_BUTTONS, FEEDER_DUAL_BUTTONS,
     FOUNTAIN_BUTTONS, FOUNTAIN_W7H_BUTTONS,
     LITTER_BUTTONS, LITTER_CAMERA_BUTTONS, LITTER_T6_BUTTONS,
 )
@@ -211,6 +211,7 @@ CATEGORY_SPECS: dict[str, CategorySpec] = {
             *FEEDER_SCHEDULE_TEXT,
         ),
         camera_entities=(*FEEDER_CAMERA_SWITCHES, *FEEDER_CAMERA_NUMBERS,
+                         *FEEDER_CAMERA_BUTTONS,
                          *_COMMON_CAMERA_ENTITIES),
         state_topics=(
             "feed_start", "feed_stop", "feed_over",

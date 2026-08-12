@@ -133,9 +133,36 @@ def test_the_ca_patcher_still_appends_to_a_real_bundle():
     ours = b"-----BEGIN CERTIFICATE-----\nOURS\n-----END CERTIFICATE-----\n"
     out = patch_ca_bundle(original, ours)
     assert out.count(b"-----BEGIN CERTIFICATE-----") == 3
-    assert out.startswith(original.rstrip())
-    with pytest.raises(ValueError, match="already"):
-        patch_ca_bundle(out, ours)
+    # Every certificate that was there is still there, and ours is last.
+    assert out.count(PEM.strip()) == 2
+    assert out.rstrip().endswith(ours.strip())
+
+
+def test_re_patching_leaves_ONE_copy_of_our_cert_rather_than_two():
+    """Applying twice used to raise; now it replaces.
+
+    The bundle must never accumulate copies of our certificate. The device's
+    OpenSSL anchors on the FIRST block whose subject matches what it was
+    served, so a stale copy left in front of the current one fails
+    verification while the right certificate sits further down, unread. That
+    is invisible from here and looks exactly like a broken cert.
+    """
+    ours = b"-----BEGIN CERTIFICATE-----\nOURS\n-----END CERTIFICATE-----\n"
+    once = patch_ca_bundle(PEM * 2, ours)
+    twice = patch_ca_bundle(once, ours)
+    assert twice.count(b"-----BEGIN CERTIFICATE-----") == 3
+    assert twice.count(ours.strip()) == 1
+    assert twice == once, "re-applying must be a no-op, not a growth"
+
+
+def test_a_block_we_cannot_parse_is_kept_rather_than_dropped():
+    """"Unreadable" must never mean "discard a CA" — the whole point of
+    validating the bundle is not to leave a device unable to verify anything."""
+    ours = b"-----BEGIN CERTIFICATE-----\nOURS\n-----END CERTIFICATE-----\n"
+    odd = b"-----BEGIN CERTIFICATE-----\n!!!not base64!!!\n-----END CERTIFICATE-----\n"
+    out = patch_ca_bundle(PEM + odd, ours)
+    assert out.count(b"-----BEGIN CERTIFICATE-----") == 3
+    assert odd.strip() in out
 
 
 # --- transport plausibility -------------------------------------------------
@@ -152,3 +179,41 @@ def test_an_html_body_is_named_as_a_transport_failure():
 
 def test_a_plausible_download_passes():
     assert_download_plausible(b"\x7fELF" + b"\x00" * 5000, "ctrl")
+
+
+def test_a_generated_cert_names_the_address_devices_are_told_to_dial(tmp_path):
+    """The uploader verifies the certificate against the address it dialled.
+
+    Autodetecting the host's own IP answers a different question: it agrees on
+    a single-homed box by luck of topology and parts company behind a reverse
+    proxy or whenever `api_url` names a HOST, which no IP SAN can satisfy.
+    """
+    pytest.importorskip("cryptography")
+    from cryptography import x509
+
+    from petkit_local.mqtt.broker import ensure_self_signed
+
+    cert, key = tmp_path / "b.crt", tmp_path / "b.key"
+    assert ensure_self_signed(str(cert), str(key), extra_hosts=["bucket.example.test"])
+
+    san = (x509.load_pem_x509_certificate(cert.read_bytes())
+           .extensions.get_extension_for_class(x509.SubjectAlternativeName).value)
+    assert "bucket.example.test" in san.get_values_for_type(x509.DNSName)
+
+
+def test_an_existing_cert_is_warned_about_and_never_silently_re_issued(tmp_path, caplog):
+    """Re-issuing invalidates the copy the CA patcher put in every patched
+    device, so a silent refresh would cut working installs off from media
+    upload during an unrelated update."""
+    pytest.importorskip("cryptography")
+    from petkit_local.mqtt.broker import ensure_self_signed
+
+    cert, key = tmp_path / "b.crt", tmp_path / "b.key"
+    assert ensure_self_signed(str(cert), str(key), extra_hosts=["10.0.0.1"])
+    before = cert.read_bytes()
+
+    with caplog.at_level("WARNING"):
+        assert ensure_self_signed(str(cert), str(key), extra_hosts=["10.9.9.9"])
+
+    assert cert.read_bytes() == before, "the certificate was re-issued"
+    assert "10.9.9.9" in caplog.text

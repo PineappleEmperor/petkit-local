@@ -45,7 +45,18 @@ MULTI_RANGE_DEFAULTS: dict[str, Any] = {
     "lightMultiRange": _ALL_DAY,
     "toneMultiRange": _ALL_DAY,
     "cameraMultiRange": _ALL_DAY_WEEKLY,
-    "cameraMultiNew": _ALL_DAY,
+    # Format B, like `cameraMultiRange` and for the same reason: this is a
+    # gating field and `pk_parse_cameraMultiNew_func` reads `rpt`/`time` off
+    # each element as an object. A bare `[[start, end]]` makes every lookup
+    # null, so `cameraRangeTable` stays empty and the D4SH logs "camera not
+    # enable" while reporting `camera: 1`.
+    #
+    # It had the plain shape because the feeder branch was written with one
+    # all-day literal for all four of its fields, while the litter branch got
+    # Format B from a capture. Our own T5 is the proof the object form is what
+    # a gating field wants: it is served `cameraMultiRange` this way and
+    # records.
+    "cameraMultiNew": _ALL_DAY_WEEKLY,
     "detectMultiRange": _ALL_DAY,
     "distrubMultiRange": [],
 }
@@ -119,6 +130,16 @@ def default_settings(device: Device) -> dict[str, Any]:
                 "eatDetection": 1, "eatSensitivity": 3,
                 "soundEnable": 0, "systemSoundEnable": 0,
                 "volume": 4, "smartFrame": 1,
+                # The three enables a camera feeder needs before it will stage
+                # and upload a clip. `feedPicture` is the direct gate,
+                # `eatVideo` the eat-clip enable, `upload` the master switch —
+                # the camera-litter block above has carried `upload: 1` all
+                # along, and this branch had none of the three. The device does
+                # not report them, and `to_device_info` serves seeded settings
+                # back, so an absent key reads to `ctrl` as a zero: it logs
+                # "feed not upload pic and video ..." and every event says
+                # `media: 0`.
+                "feedPicture": 1, "eatVideo": 1, "upload": 1,
             })
         return base
     if device.is_water_fountain:
@@ -218,11 +239,11 @@ def schedule_targets(device: Device) -> list[dict[str, Any]]:
         "cameraMultiNew": "Shooting Period",
         "detectMultiRange": "Detection Period",
     }
-    # `cameraMultiNew` is listed as plain ranges because that is the shape
-    # this add-on currently serves for it. PR #18 has evidence the firmware
-    # reads it as `weekly` objects instead; when that lands, this line moves
-    # with it rather than the two disagreeing.
-    weekly = {"cameraMultiRange"}
+    # Both camera-gating fields are `weekly` objects. `cameraMultiNew` used to
+    # be listed as plain ranges here purely because that was the shape served
+    # for it; it now matches `MULTI_RANGE_DEFAULTS`, so the editor and the
+    # payload cannot disagree about what the device is being sent.
+    weekly = {"cameraMultiRange", "cameraMultiNew"}
 
     targets = [
         {"target": key, "name": labels.get(key, key),

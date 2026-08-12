@@ -66,6 +66,16 @@ FEEDER_BUTTONS = [
     EntityDef(component="button", key="food_replenished", name="Food Replenished", icon="mdi:food-apple"),
 ]
 
+#: Camera feeders only. `devices/defaults.py` seeds the three media-upload
+#: enables, but a device already running has read its settings and will not ask
+#: again for hours -- this pushes them now. Kept as a button rather than three
+#: switches because they are one decision ("record my feeds") that the firmware
+#: happens to spell in three fields.
+FEEDER_CAMERA_BUTTONS = [
+    EntityDef(component="button", key="enable_feed_video", name="Enable Feed Video",
+              icon="mdi:video", entity_category="config"),
+]
+
 #: A Dual-Hopper only. `feed` above already dispenses from both, so these are
 #: the one thing it cannot express: food from one hopper and not the other.
 #: PetKit's app does exactly this, and does it through the same service rather

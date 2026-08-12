@@ -58,7 +58,49 @@ def _get_host_ip() -> str | None:
         return None
 
 
-def ensure_self_signed(cert_path: str, key_path: str) -> bool:
+def _san_of(cert_path: str) -> set[str]:
+    """Every name and address the cert at `cert_path` claims, as strings.
+
+    Empty when it cannot be read, which the caller treats as "cannot tell" and
+    stays quiet about rather than warning on a guess.
+    """
+    try:
+        from cryptography import x509  # noqa: PLC0415 - optional dependency
+        with open(cert_path, "rb") as fh:
+            cert = x509.load_pem_x509_certificate(fh.read())
+        san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+        return ({str(ip) for ip in san.get_values_for_type(x509.IPAddress)}
+                | set(san.get_values_for_type(x509.DNSName)))
+    except Exception:  # noqa: BLE001 - absent, unreadable or no SAN
+        return set()
+
+
+def _warn_if_uncovered(cert_path: str, hosts: list[str]) -> None:
+    """Say so when an EXISTING cert does not name an address devices dial.
+
+    Deliberately a warning and not a regeneration. Minting a new certificate
+    invalidates the copy the `cacert` patcher put in every patched device's
+    trust store, so a silent refresh would cut working installs off from media
+    upload at the moment of an unrelated update. The operator deletes the file
+    and re-runs the patcher when they are ready.
+    """
+    if not hosts:
+        return
+    named = _san_of(cert_path)
+    if not named:
+        return
+    missing = [h for h in hosts if h not in named]
+    if missing:
+        log.warning(
+            "The TLS certificate at %s does not name %s, which is where devices "
+            "are told to upload. Clients that verify the address will refuse it. "
+            "To re-issue: stop the add-on, delete %s and its key, start it, then "
+            "re-apply the CA patcher to every device.",
+            cert_path, ", ".join(missing), cert_path)
+
+
+def ensure_self_signed(cert_path: str, key_path: str,
+                       extra_hosts: list[str] | None = None) -> bool:
     """Generate a self-signed cert/key pair at the given paths if missing.
 
     Self-signed is sufficient because the device's mbedtls is patched to skip
@@ -66,13 +108,26 @@ def ensure_self_signed(cert_path: str, key_path: str) -> bool:
     the host IP anyway so that clients which DO check the hostname — curl with
     VERIFYHOST, for one — can still be pointed at the broker for debugging.
 
+    `extra_hosts` are additional addresses to name, and the caller passes the
+    one devices are actually told to dial. Autodetecting the host's own IP is
+    not the same question: it agrees on a single-homed HA OS box by luck of
+    topology, and disagrees behind a reverse proxy, on a multi-homed host
+    (where the fallback picks the interface facing the internet, not the one
+    facing the litter box), or whenever `api_url` names a host rather than an
+    address — in which case no IP SAN can match it at all.
+
+    An existing cert is never re-issued, only warned about; see
+    `_warn_if_uncovered`.
+
     Returns:
         True if a usable cert exists afterwards, including the case where one
         was already there. False means `cryptography` is missing or generation
         failed; the caller then starts without a TLS listener rather than not
         starting at all.
     """
+    wanted = [h for h in (extra_hosts or []) if h]
     if os.path.exists(cert_path) and os.path.exists(key_path):
+        _warn_if_uncovered(cert_path, wanted)
         return True
     try:
         from cryptography import x509  # noqa: PLC0415 - optional dependency, probed at use
@@ -84,8 +139,17 @@ def ensure_self_signed(cert_path: str, key_path: str) -> bool:
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "petkit-local")])
         san_names = [x509.DNSName("petkit-local")]
-        if host_ip:
-            san_names.append(x509.IPAddress(ipaddress.ip_address(host_ip)))
+        seen: set[str] = set()
+        for host in ([host_ip] if host_ip else []) + wanted:
+            if not host or host in seen:
+                continue
+            seen.add(host)
+            try:
+                san_names.append(x509.IPAddress(ipaddress.ip_address(host)))
+            except ValueError:
+                # Not an address, so it is a name — and a name is exactly the
+                # case an IP SAN can never satisfy.
+                san_names.append(x509.DNSName(host))
         now = datetime.datetime.utcnow()
         cert = (
             x509.CertificateBuilder()

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
 from petkit_local.patchers.common import md5hex
 from petkit_local.patchers.verify import assert_ca_bundle
@@ -18,17 +19,49 @@ from petkit_local.patchers.verify import assert_ca_bundle
 log = logging.getLogger(__name__)
 
 
+_PEM_BLOCK = re.compile(
+    rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", re.DOTALL)
+
+
+def _subject_of(pem: bytes) -> bytes | None:
+    """A certificate's subject, or None if it cannot be read.
+
+    None is the honest answer for both "cryptography is not installed" and
+    "this block is not a certificate we can parse", and both callers treat it
+    the same way: keep the block. Losing a real CA is far worse than leaving a
+    stale copy of ours behind.
+    """
+    try:
+        from cryptography import x509  # noqa: PLC0415 - optional dependency
+        return x509.load_pem_x509_certificate(pem).subject.public_bytes()
+    except Exception:  # noqa: BLE001 - any failure means "cannot tell"
+        return None
+
+
 def patch_ca_bundle(original: bytes | None, our_cert_pem: bytes) -> bytes:
-    """Append our self-signed cert PEM to the device's CA bundle.
+    """Put exactly ONE copy of our current cert in the device's CA bundle.
 
     Raises:
-        ValueError: If either side is not a PEM bundle, or ours is already in.
+        ValueError: If either side is not a PEM bundle.
 
     Both inputs are validated because an empty `original` must not read as "the
     device has no CA bundle": that would write a /app/bin/ca.crt holding ONLY
     our certificate and leave the device unable to verify any other TLS peer.
     Every device ships a bundle (226 KB on a T5, 11 KB on a D4SH), so an empty
     read means the download failed, not that there is nothing to keep.
+
+    Why strip-then-append rather than a blind append. Our certificate can be
+    regenerated -- a new SAN, a new key -- and appending every time left the
+    OLD ones in the bundle. The device's OpenSSL picks the FIRST certificate
+    whose subject matches the one it was served as the trust anchor, so a
+    stale copy with a different key fails verification even though the right
+    certificate is also present, a few entries further down. Every certificate
+    sharing our current subject is therefore removed and ours appended, leaving
+    one.
+
+    A block we cannot parse is kept, because "unreadable" must never mean
+    "discard a CA". And re-applying the patch is now idempotent rather than an
+    error: the second run simply replaces the copy the first one left.
     """
     if b"-----BEGIN CERTIFICATE-----" not in our_cert_pem:
         raise ValueError("our_cert_pem is not valid PEM")
@@ -36,18 +69,33 @@ def patch_ca_bundle(original: bytes | None, our_cert_pem: bytes) -> bytes:
     assert_ca_bundle(original or b"", "device ca.crt")
     assert original is not None  # narrowed by assert_ca_bundle
 
-    if our_cert_pem in original:
-        raise ValueError("Our certificate is already in the CA bundle")
+    blocks = _PEM_BLOCK.findall(original)
+    original_count = len(blocks)
+    ours = _subject_of(our_cert_pem)
 
-    original_count = original.count(b"-----BEGIN CERTIFICATE-----")
-    patched = original.rstrip() + b"\n\n" + our_cert_pem.strip() + b"\n"
-    patched_count = patched.count(b"-----BEGIN CERTIFICATE-----")
+    kept: list[bytes] = []
+    dropped = 0
+    for block in blocks:
+        subject = _subject_of(block)
+        # With `cryptography` unavailable both subjects are None, and the
+        # comparison degrades to the exact-bytes check this used to do.
+        same = (subject == ours) if (ours is not None and subject is not None) \
+            else (block.strip() == our_cert_pem.strip())
+        if same:
+            dropped += 1
+            continue
+        kept.append(block.strip())
+    kept.append(our_cert_pem.strip())
 
-    if patched_count != original_count + 1:
-        raise RuntimeError(f"Cert count mismatch: {original_count} -> {patched_count} (expected +1)")
+    patched = b"\n\n".join(kept) + b"\n"
+    patched_count = len(_PEM_BLOCK.findall(patched))
 
-    log.info("Patched CA bundle: %d -> %d certs, %d -> %d bytes (md5 %s -> %s)",
-             original_count, patched_count, len(original), len(patched),
+    if patched_count != len(kept) or our_cert_pem.strip() not in patched:
+        raise RuntimeError("CA bundle patch produced an unusable result")
+
+    log.info("Patched CA bundle: %d -> %d certs (dropped %d stale copies of "
+             "ours), %d -> %d bytes (md5 %s -> %s)",
+             original_count, patched_count, dropped, len(original), len(patched),
              md5hex(original), md5hex(patched))
     return patched
 

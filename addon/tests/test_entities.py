@@ -60,7 +60,10 @@ EXPECTED_ENTITY_COUNTS = {
     # their two times, volume, voice language, and the same two power buttons.
     "t3": 46, "t4": 46, "t5": 82, "t6": 83, "t7": 82,
     "feeder": 25, "feedermini": 25, "d3": 25, "d4": 25, "d4s": 25,
-    "d4h": 50, "d4sh": 54,
+    # +1 each on 2026-08-12: `enable_feed_video`, which pushes the three
+    # media-upload enables to a feeder that is already running rather than
+    # waiting for it to re-read its settings.
+    "d4h": 51, "d4sh": 55,
     "w4": 24, "w5": 24, "ctw2": 24, "ctw3": 24, "w7h": 84,
     "k2": 12, "k3": 12,
 }
