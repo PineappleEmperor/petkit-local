@@ -259,6 +259,24 @@ class HAPublisher:
 
         log.info("Published %d discovery configs for %s (id=%d)", len(entities), device.device_type, device.petkit_id)
 
+    async def unpublish_discovery(self, device: Device) -> None:
+        """Remove every HA entity of `device` by publishing empty payloads."""
+        if not self._client or not self._connected:
+            return
+
+        entities = get_entities_for_device(device)
+        self._commands.clear_entities(device.petkit_id)
+
+        for entity in entities:
+            topic = discovery_topic(entity, device.petkit_id, self._prefix)
+            await self._emit(topic, "", retain=True)
+
+        for suffix in ("state", "availability"):
+            await self._emit(f"petkit-local/{device.petkit_id}/{suffix}", "", retain=True)
+
+        log.info("Unpublished %d discovery configs for %s (id=%d)",
+                 len(entities), device.device_type, device.petkit_id)
+
     async def _emit(self, topic: str, payload: Any, *, retain: bool = True) -> bool:
         """Publish one message, never raising. Returns whether it went out.
 

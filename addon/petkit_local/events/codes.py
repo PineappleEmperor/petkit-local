@@ -402,6 +402,20 @@ LITTER_HTTP_CODES: dict[str, EventCode] = {
              "related_event value is an unquoted bare token) -- see "
              "ingest._repair_bare_values.",
     ),
+    "51": EventCode(
+        kind=KIND_SYSTEM, label="BLE relay started", detail=True,
+        families=LITTER_NEXT_GEN,
+        note="Confirmed on a T5 (fw 943, HTTP capture). Content "
+             "{start_time, start_reason, action, device: {mac, type}}. "
+             "The MQTT equivalent is ble_relay_start/post.",
+    ),
+    "53": EventCode(
+        kind=KIND_SYSTEM, label="BLE relay data", detail=True,
+        families=LITTER_NEXT_GEN,
+        note="Confirmed on a T5 (fw 943, HTTP capture). Content "
+             "{payload: [{cmd, data}], device: {type, mac}}. "
+             "The MQTT equivalent is ble_response/post.",
+    ),
 }
 
 #: Codes absent from both the firmware RE and our wire. Left unmapped on
@@ -410,16 +424,15 @@ LITTER_HTTP_CODES: dict[str, EventCode] = {
 UNKNOWN_HTTP_CODES = frozenset({"12", "19", "22", "23"})
 
 
-#: Feeder HTTP codes. Sparse on purpose: the D4H's `ctrl` has no
-#: `*_event_report` wrappers except `pk_event_report` itself, so every code
-#: except `feed_over` is set inside a `pk_event_pack_*` body behind a dispatch
-#: (a0=6, a1=0x3e, a2=2) that the disassembly does not resolve to a constant.
-#: Guessing the rest from the litter table is precisely the mistake this
-#: per-category split exists to prevent.
+#: Feeder HTTP codes. Code 2 came from the D4H firmware RE; codes 3 and 4
+#: were confirmed on a live D4SH (fw 248, HTTP). The D4H's `ctrl` has no
+#: `*_event_report` wrappers except `pk_event_report` itself, so further codes
+#: are set inside a `pk_event_pack_*` body behind a dispatch that the
+#: disassembly does not resolve to a constant.
 #:
 #: Known pack functions without a recovered code: eat_start, eat_over,
 #: move_event, pet_event, err_start, err_over, relay_start, relay_over,
-#: relay_response, feed_start.
+#: relay_response.
 FEEDER_HTTP_CODES: dict[str, EventCode] = {
     "2": EventCode(
         kind=KIND_FEEDING, label="Feeding done", anchor=True, role=ROLE_DONE,
@@ -429,6 +442,59 @@ FEEDER_HTTP_CODES: dict[str, EventCode] = {
              "`feed_over` here and `err_over` on a litter box. Content is "
              "{id, day, manual, time, online_state, eat_video, state}.",
     ),
+    "3": EventCode(
+        kind=KIND_FEEDING, label="Feeding started", detail=True,
+        role=ROLE_START, families=FEEDER,
+        note="Confirmed on a live D4SH (fw 248, HTTP). Content "
+             "{id, day, manual, time, online_state} matches MQTT "
+             "feed_start/post from the same model (fw 867). "
+             "state.feeding is 1 or 2 while the motor runs.",
+    ),
+    "4": EventCode(
+        kind=KIND_FEEDING, label="Feeding done", anchor=True,
+        role=ROLE_DONE, done_word="feeding", families=FEEDER,
+        note="Confirmed on a live D4SH (fw 248, HTTP). Content "
+             "{mark, start_time, id, day, manual, time, real_amount1, "
+             "real_amount2, completed_at, result, err_code, media} "
+             "matches MQTT feed_over/post. Coexists with code 2 "
+             "(same kind, simpler shape, from the D4H firmware RE); "
+             "which code a given model sends is not yet settled.",
+    ),
+}
+
+#: Fountain HTTP codes. Sparse until more families have HTTP captures: the W7H
+#: is the only embedded-Linux fountain, and a Bluetooth EverSweet has no HTTP
+#: path at all, so the codes are keyed on `FOUNTAIN_NEXT_GEN`.
+FOUNTAIN_HTTP_CODES: dict[str, EventCode] = {
+    "5": EventCode(
+        kind=KIND_DRINKING, label="Drinking started", detail=True,
+        role=ROLE_START, families=FOUNTAIN_NEXT_GEN,
+        note="Confirmed on a W7H (fw 456, HTTP capture). Content "
+             "{event_start} matches MQTT drink_start/post shape.",
+    ),
+    "6": EventCode(
+        kind=KIND_DRINKING, label="Drinking done", anchor=True,
+        role=ROLE_DONE, done_word="drinking", families=FOUNTAIN_NEXT_GEN,
+        note="Confirmed on a W7H (fw 456, HTTP capture). Content "
+             "{img, aesKey, mark, start_time, event_start, event_end, "
+             "drink_time, media, upload, drinkDetection, pet_id, "
+             "tracker_info, vomit_info} matches MQTT drink_over/post.",
+    ),
+    "20": EventCode(
+        kind=KIND_PET, label="Appeared", anchor=True,
+        families=FOUNTAIN_NEXT_GEN,
+        note="Same role as litter code 20 but a DIFFERENT category table. "
+             "Confirmed on a W7H (fw 456, HTTP capture). Content "
+             "{img, aesKey, mark, start_time, upload, media, petDetection}.",
+    ),
+    "24": EventCode(
+        kind=KIND_PET, label="Detection result", detail=True,
+        role=ROLE_DETECTION, families=FOUNTAIN_NEXT_GEN,
+        note="Same role as litter code 24. Confirmed on a W7H (fw 456). "
+             "Content {related_event, count, area, pet_id, tracker_info, "
+             "vomit_info}. Emitted as INVALID JSON (bare related_event "
+             "token) -- same quirk as litter code 24.",
+    ),
 }
 
 #: Category name -> its HTTP code table. Categories with no recovered codes map
@@ -437,7 +503,7 @@ FEEDER_HTTP_CODES: dict[str, EventCode] = {
 HTTP_CODES_BY_CATEGORY: dict[str, dict[str, EventCode]] = {
     "litter": LITTER_HTTP_CODES,
     "feeder": FEEDER_HTTP_CODES,
-    "fountain": {},
+    "fountain": FOUNTAIN_HTTP_CODES,
     "purifier": {},
 }
 
@@ -972,6 +1038,9 @@ FEED_RESULT: dict[int, str] = {
     #: had never seen it.
     7: "failed (error 7)",
     8: "nothing dispensed",
+    #: Observed twice on a live D4SH with both hoppers empty (food1=0, food2=0),
+    #: err_code=0, real_amount=0/0. Distinct from 8 (which carries err_code=8).
+    9: "no food",
     10: "skipped",
 }
 
@@ -1119,6 +1188,7 @@ def _codes_where(table: dict[str, EventCode], **match: object) -> frozenset[str]
 ALL_EVENT_CODES: dict[str, EventCode] = {
     **MQTT_EVENT_TOPICS,
     **FEEDER_HTTP_CODES,
+    **FOUNTAIN_HTTP_CODES,
     **LITTER_HTTP_CODES,
 }
 

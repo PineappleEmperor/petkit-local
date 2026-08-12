@@ -378,6 +378,18 @@ onAction('ble-cloud-import', async el => {
   loadDevices();
 });
 
+onAction('delete-device', async el => {
+  if (
+    !confirm(
+      `Delete ${el.dataset.name}?\n\nThis removes the device from the registry and all its Home Assistant entities. Events and media are kept.`,
+    )
+  )
+    return;
+  const r = await api('devices/' + encodeURIComponent(el.dataset.id), { method: 'DELETE' });
+  toast(r.ok ? 'Device removed' : 'Error: ' + (r.error || 'failed'));
+  loadDevices();
+});
+
 onAction('ble-unpair', async el => {
   if (
     !confirm(
@@ -699,6 +711,11 @@ function renderPanelBody(d) {
       <div class="col"><b>Last MQTT property.post</b><pre>${esc(JSON.stringify(d.diag.last_property || { note: 'none yet' }, null, 2))}</pre></div>
     </div>
     <b>MQTT connection</b><pre>${esc(JSON.stringify(d.diag.last_connect || { note: 'no MQTT connect seen — device is on HTTP heartbeat' }, null, 2))}</pre>
+  </details></div>
+
+  <div class="card"><details class="adv" data-toggle="dev-sec" data-id="${esc(d.id)}" data-sec="danger" ${secOpen(d.id, 'danger', false) ? 'open' : ''}><summary>Remove device</summary>
+    <p class="sub">Permanently delete this device from the registry and remove all its Home Assistant entities. Events and media are kept.</p>
+    <button class="act danger" data-action="delete-device" data-id="${esc(d.id)}" data-name="${esc((d.type || '').toUpperCase() + ' ' + (d.serial_number || d.id))}">Delete device</button>
   </details></div>
 
   <div class="card"><details class="adv" data-toggle="dev-sec" data-id="${esc(d.id)}" data-sec="raw" ${secOpen(d.id, 'raw', false) ? 'open' : ''}><summary>Advanced: send raw command</summary>

@@ -22,6 +22,7 @@ def _all_rows():
     """(table name, key, EventCode) for every row in every namespace."""
     for name, table in (("litter", codes.LITTER_HTTP_CODES),
                         ("feeder", codes.FEEDER_HTTP_CODES),
+                        ("fountain", codes.FOUNTAIN_HTTP_CODES),
                         ("mqtt", codes.MQTT_EVENT_TOPICS)):
         for key, code in table.items():
             yield name, key, code
@@ -114,6 +115,9 @@ def test_an_http_code_fires_the_same_ha_event_entity_as_its_mqtt_twin():
         ("clean_over", "5", "t5", "cleaning_event"),
         ("dump_over", "6", "t5", "cleaning_event"),
         ("feed_over", "2", "d4h", "feeding_event"),
+        ("feed_start", "3", "d4sh", "feeding_event"),
+        ("feed_over", "4", "d4sh", "feeding_event"),
+        ("drink_over", "6", "w7h", "drinking_event"),
     ]:
         assert entity_for_event(name) == entity
         assert entity_for_event(code, device_type) == entity
@@ -251,3 +255,61 @@ def test_the_litter_type_enum_has_no_zero():
     sand = next(e for e in LITTER_SELECTS if e.key == "sand_type")
     assert sand.option_values == sorted(codes.SAND_TYPES)
     assert len(sand.options) == len(codes.SAND_TYPES)
+
+
+# --- per-category HTTP code coverage (capture-derived, 2026-08-12) ----------
+
+def test_feeder_codes_3_and_4_map_to_feeding():
+    """Confirmed on a live D4SH (fw 248, HTTP). Code 3 opens a feed cycle,
+    code 4 closes it — matching MQTT feed_start/feed_over content shapes."""
+    start = codes.lookup("3", "d4sh")
+    assert start.kind == codes.KIND_FEEDING and start.role == codes.ROLE_START
+
+    over = codes.lookup("4", "d4sh")
+    assert over.kind == codes.KIND_FEEDING and over.role == codes.ROLE_DONE
+
+    assert ingest.classify_event_kind("3", device_type="d4sh") == codes.KIND_FEEDING
+    assert ingest.classify_event_kind("4", device_type="d4sh") == codes.KIND_FEEDING
+
+
+def test_feeder_code_3_does_not_collide_with_litter_code_3():
+    """Code 3 is feed_start on a feeder and mechanism started on a litter box."""
+    feeder = codes.lookup("3", "d4sh")
+    litter = codes.lookup("3", "t5")
+    assert feeder.kind == codes.KIND_FEEDING
+    assert litter.kind == codes.KIND_CLEANING
+
+
+def test_fountain_codes_map_to_drinking_and_pet():
+    """Confirmed on a W7H (fw 456, HTTP capture)."""
+    assert codes.lookup("5", "w7h").kind == codes.KIND_DRINKING
+    assert codes.lookup("6", "w7h").kind == codes.KIND_DRINKING
+    assert codes.lookup("20", "w7h").kind == codes.KIND_PET
+    assert codes.lookup("24", "w7h").kind == codes.KIND_PET
+
+
+def test_fountain_code_5_does_not_collide_with_litter_code_5():
+    """Code 5 is drink_start on a fountain and cleaning done on a litter box."""
+    fountain = codes.lookup("5", "w7h")
+    litter = codes.lookup("5", "t5")
+    assert fountain.kind == codes.KIND_DRINKING
+    assert litter.kind == codes.KIND_CLEANING
+
+
+def test_fountain_drink_over_fires_drinking_event():
+    """The W7H's drink_over must fire the `drinking_event` HA entity."""
+    from petkit_local.events.ingest import entity_for_event
+    assert entity_for_event("6", "w7h") == "drinking_event"
+
+
+def test_litter_ble_relay_codes_are_system_detail():
+    """Codes 51 and 53 are BLE relay transport, not user-visible events."""
+    for code in ("51", "53"):
+        ec = codes.lookup(code, "t5")
+        assert ec.kind == codes.KIND_SYSTEM
+        assert ec.detail is True
+
+
+def test_feed_result_9_is_mapped():
+    """Observed on a live D4SH with empty hoppers."""
+    assert 9 in codes.FEED_RESULT

@@ -53,8 +53,8 @@ from petkit_local.web.api.ble import (
     api_ble_accessories, api_ble_command, api_ble_delete, api_ble_import, api_ble_poll,
 )
 from petkit_local.web.api.devices import (
-    api_ai_settings, api_capabilities, api_device_detail, api_device_log_settings,
-    api_timezone,
+    api_ai_settings, api_capabilities, api_device_delete, api_device_detail,
+    api_device_log_settings, api_timezone,
     api_devices, api_send_command,
 )
 from petkit_local.web.api.logs import (
@@ -192,6 +192,7 @@ def create_panel_app(registry: DeviceRegistry, ble_registry: BLERegistry | None,
     # --- devices: list, detail, commands ---
     app.router.add_get("/api/devices", api_devices)
     app.router.add_get("/api/devices/{id}", api_device_detail)
+    app.router.add_delete("/api/devices/{id}", api_device_delete)
     app.router.add_post("/api/devices/{id}/command", api_send_command)
     app.router.add_post("/api/devices/{id}/schedule", api_save_schedule)
 

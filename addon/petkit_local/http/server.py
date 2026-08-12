@@ -111,6 +111,7 @@ def create_app(registry: DeviceRegistry, config: dict) -> web.Application:
         app.router.add_route("*", f"{p}/dev_ota_heartbeat", handle_ota_check)
         app.router.add_route("*", f"{p}/dev_ota_start", handle_event_report)
         app.router.add_route("*", f"{p}/dev_ota_complete", handle_event_report)
+        app.router.add_route("*", f"{p}/dev_oss_sts_info_new", handle_oss_sts)
         app.router.add_route("*", f"{p}/dev_oss_sts_info_new_v2", handle_oss_sts)
         app.router.add_route("*", f"{p}/dev_video_device_info", handle_video_device_info)
         app.router.add_route("*", f"{p}/dev_device_info", handle_device_info)

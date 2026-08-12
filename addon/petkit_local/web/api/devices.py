@@ -470,3 +470,33 @@ async def api_device_log_settings(request: web.Request) -> web.Response:
             reg.save()
 
     return web.json_response(_log_settings_view(d, request))
+
+
+async def api_device_delete(request: web.Request) -> web.Response:
+    """Remove a device from the registry and clean up its HA entities."""
+    reg = request.app["registry"]
+    d = _device_or_404(request)
+    did = d.petkit_id
+
+    publisher = request.app.get("publisher")
+    if publisher:
+        await publisher.unpublish_discovery(d)
+
+    ble = request.app.get("ble_registry")
+    orphaned = []
+    if ble:
+        for acc in ble.get_linked(did):
+            orphaned.append(acc.petkit_id)
+
+    reg.remove(did)
+
+    hub = request.app.get("event_hub")
+    if hub:
+        hub.forget_device(did)
+
+    return web.json_response({
+        "ok": True,
+        "removed": did,
+        "orphaned_accessories": orphaned,
+        "note": "Device removed. Orphaned BLE accessories, if any, must be deleted separately.",
+    })

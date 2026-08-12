@@ -211,6 +211,8 @@ async def handle_event_report(request: web.Request) -> web.Response:
 
     if apply_state_snapshot(device, state):
         registry.mark_dirty()
+        if not device.state.get("ip") and request.remote:
+            device.state["ip"] = request.remote
 
     # Applied AFTER the state block, so a derived timestamp is not overwritten
     # by the report the same request carried. Shared with `mqtt/bridge.py`.
@@ -219,6 +221,8 @@ async def handle_event_report(request: web.Request) -> web.Response:
 
     hub = request.app.get("event_hub")
     if hub is not None:
+        if isinstance(state, dict) and state:
+            hub.set_state_report(petkit_id, state)
         hub.publish("event", petkit_id,
                     f"{row['event_type'] or 'event'} ({row['event_kind']})", detail=row)
 

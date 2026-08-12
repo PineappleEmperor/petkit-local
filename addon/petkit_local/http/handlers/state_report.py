@@ -130,6 +130,8 @@ async def handle_state_report(request: web.Request) -> web.Response:
         # parse_state_report still handles any device that sends flat keys.
         device.state.update(parse_state_report(device.device_type, body))
         device.state.update(normalize_property_params(device.device_type, body))
+        if not device.state.get("ip") and request.remote:
+            device.state["ip"] = request.remote
         apply_consumable_state(device)
         device.last_state_report = time.time()
         device.online = True

@@ -363,6 +363,15 @@ class DeviceRegistry(PersistedRegistry):
                 return d
         return None
 
+    def remove(self, petkit_id: int) -> Device | None:
+        """Delete a device permanently. Returns it, or None if not found."""
+        device = self._devices.pop(petkit_id, None)
+        if device is not None:
+            log.info("Device removed: type=%s id=%d sn=%s",
+                     device.device_type, petkit_id, device.serial_number)
+            self.save()
+        return device
+
     def _serialize(self) -> dict[str, Any]:
         """`{"<petkit_id>": Device.to_dict()}` — the shape of devices.json."""
         return {str(pid): d.to_dict() for pid, d in self._devices.items()}

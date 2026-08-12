@@ -425,8 +425,13 @@ class MQTTBridge:
         # while the `property` stream stayed silent for 74 minutes either side.
         # Applied BEFORE apply_derived_state, the same order the HTTP path uses,
         # so a derived timestamp is not overwritten by the snapshot.
-        if apply_state_snapshot(device, params.get("state")):
+        event_state = params.get("state")
+        if apply_state_snapshot(device, event_state):
             self._registry.mark_dirty()
+            if self._hub and isinstance(event_state, (dict, str)):
+                body = event_state if isinstance(event_state, dict) else {}
+                if body:
+                    self._hub.set_state_report(device.petkit_id, body)
 
         # Last Clean / Last Visit / Last Feed / Pet Weight exist only as a
         # consequence of an event, so they are derived here rather than in any
