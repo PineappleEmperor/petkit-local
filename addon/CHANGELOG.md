@@ -1,5 +1,244 @@
 # Changelog
 
+## 2.1.0 — 2026-08-12
+
+The YumShare Dual-Hopper (D4SH) camera feeder is now confirmed working, and most
+of this release is what that took: real feed schedules, custom sounds, its camera
+recording, its event codes, and a pile of routing and response-shape fixes found
+against live captures. It also adds two-way talk — the panel's microphone to the
+device speaker — and models the single-hopper YumShare Solo (D4H) as its own
+thing rather than a Dual-Hopper with a hopper removed.
+
+- **Two-way talk (intercom).** A new device patcher installs a local audio sink
+  so the panel's microphone can reach the device speaker — real two-way audio
+  without PetKit's cloud, which routed talkback through Agora. Listening already
+  came from the local camera stream; this is the missing half. The panel
+  transcodes the browser mic to the device's format and streams it to a small
+  listener the patch installs, which hands it to the firmware's own audio player.
+  Verified end to end on a live D4SH. Half-duplex by design (the echo
+  cancellation lived on the cloud path), and the listener is unauthenticated on
+  the LAN while the patch is applied — apply it on a trusted network only.
+
+- **The YumShare Solo (D4H) is modelled as a single-hopper feeder** rather than a
+  Dual-Hopper with one hopper taken away. It gets one hopper-level sensor reading
+  its singular `food` field and keeps the family's Food Low sensor, where the
+  Dual-Hopper gets two hopper levels and per-hopper feed controls. This is
+  inferred, not measured — no D4H has ever reported to the add-on — so it bets
+  the device reports like a plain single-hopper feeder; every guessed site says
+  so in the code and points back to the Dual-Hopper shape for when one is
+  captured.
+
+- **HTTP event codes are read per device category.** The same `event_type`
+  number means different things on different hardware, so it is now mapped per
+  category: feeder `3`/`4` (feed started/over) and the camera-feeder snapshots
+  `5` (eating started), `7` (motion) and `8` (pet appeared); fountain `5`/`6`/
+  `20`/`24`; and litter BLE-relay `51`/`53`. The feeder snapshot numbers are
+  graded inferred — the firmware does not carry the number as a literal, so they
+  were read from the recordings attached to each event, not confirmed against the
+  binary. A value with no mapping stays a number rather than borrowing another
+  category's label.
+
+- **Devices can be deleted from the panel**, with their Home Assistant entities
+  cleaned up instead of left orphaned. A device's IP is now learned from its
+  event and state reports — which is what the patcher and camera features need to
+  reach it — and event snapshots appear in the panel's live log.
+
+- **A camera feeder stopped recording its feeds.** 2.0.x renamed the recording-
+  window field it serves from `cameraMultiNew` to `cameraMultiRange`, on the
+  theory that `dev_multi_config` used a different key than `dev_device_info`.
+  It does not: the D4SH parses the window with `pk_parse_cameraMultiNew_func`,
+  which keys on `cameraMultiNew` and stores it internally as `cameraMultiRange`
+  — so serving the internal name reached no parser, the window stayed empty, the
+  camera never armed (`cameraStatus` 0), and every feed reported `media: 0` and
+  uploaded nothing. Restored to `cameraMultiNew`; confirmed live on a D4SH that
+  the camera re-arms and feeds record and upload again. Litter boxes and the W7H
+  fountain keep `cameraMultiRange`, which is right for them.
+
+- **A feeder's scheduled meals fired two hours late (or on the wrong day)
+  because we told it the wrong timezone.** A device that only ever got a zone
+  NAME over BLE (`locale: "Europe/Warsaw"`) and never a numeric offset reports
+  that offset as `0`, so a box plainly in Warsaw told us it was in UTC — and we
+  served UTC straight back in `dev_device_info`, leaving its clock two hours
+  behind. The offset is now recovered from the zone name the device itself
+  reports, which is unambiguous and — unlike a number frozen at provisioning —
+  stays correct across DST. Separately, the panel's timezone push only ever
+  went over MQTT, so for a feeder that talks HTTP it was a silent no-op; it now
+  falls back to the heartbeat queue like every other command, and the value
+  stays a JSON string (a number is a no-op in the firmware's parser).
+
+- **Feeder meal times were being sent in the wrong unit — a meal set for 18:02
+  fed the cat at 00:18.** A meal's `t` counts SECONDS since local midnight on
+  the wire (the cloud's `n_46560` fires at 12:56:00 — confirmed against 21 real
+  responses captured 2026-08-12); the schedule editor stored MINUTES. Schedules
+  saved with the old editor are converted once, automatically. `dev_feed_get`
+  now also mirrors the cloud's bookkeeping exactly: `latest` lists only feeds
+  firing today or tomorrow, `nextTick` is the last listed feed's countdown (or
+  the cloud's 86340 constant when nothing is coming up), and `itemJsonString`
+  is serialized with the cloud's own key order — so what the feeder fetches
+  after a schedule change is now indistinguishable from the cloud's answer.
+
+- **A device that has never had a PetKit id can now register.** A device is
+  given its id by PetKit at first registration and repeats it forever after;
+  one that never reached PetKit has nothing to repeat, and was answered with
+  a 400 it would retry against forever. Second-hand units sold as "broken"
+  are often exactly this. It now gets an id derived from its MAC — the same
+  one every time, so a retry does not register a second device, and it
+  survives a lost `devices.json`. Ours open with `4` where PetKit's open
+  with `3`, so the two can never be confused. A blank serial number is fine
+  too. Only a device offering no stable identifier at all is still refused.
+- **Reset N50 from the panel now records the replacement date.** The panel and
+  Home Assistant reached the same button through two different code paths, and
+  only Home Assistant's recorded anything. The N50 has no field in any device
+  report, so that record is the countdown's only possible source — pressing the
+  panel button sent the device command and changed nothing visible. Both
+  request forms now go through one handler, and a test holds them to the same
+  side effects.
+- **A cleaning cycle that stops because the bin is full no longer reads
+  "canceled (kitten mode)".** `result: 4` is a full bin — it appears only
+  alongside `err: "full"`, on two device families. The kitten-mode label had
+  borrowed that slot as a lookup constant for a different case (`result: 3`
+  with a `kitten` flag), which still reads correctly.
+- `result` values outside the cleaning table are no longer given a cleaning
+  cycle's vocabulary. The same field carries a different meaning per event —
+  a BLE relay's `1` is not "terminated" — so an unmapped value stays a number.
+- Proxy mode no longer confuses two different things both called `capability`:
+  the upload credentials in an STS response and the cloud-storage window in
+  `dev_device_info`. Matching on the key alone replaced one with the other.
+- New proxy option, off by default: **Keep recording locally**. An expired
+  PetKit subscription arrives looking like a valid configuration and silently
+  stops a camera recording; this answers with our own standing window instead.
+  Off by default because an expired window is a fact about someone's account,
+  and overriding it is a decision rather than a transport detail.
+- **A Purobot Ultra now reports its bagging mechanism.** Six fields it sends in
+  every single state report were read by nothing — bag state, packing, bagging,
+  seal door, bin store and bags left. They are published raw and marked
+  diagnostic, because nothing names what their values mean and a label here
+  would be invented. `t6` only; no other litter box has the hardware.
+- The add-on now says in its log where it keeps persistent state, or warns
+  loudly that it is keeping none. That distinction is invisible until a restart
+  loses something, and the patcher list is the part that cannot be rebuilt from
+  the device afterwards.
+- The contributing guide's warning about captures now names what is actually in
+  them: a Purobot Ultra puts a cartridge credential in every state report, every
+  camera event carries the key its media is encrypted with, and the Wi-Fi block
+  rides along with every event rather than only the state reports.
+- **A W7H's schedules exist.** The fountain was served an empty
+  `dev_multi_config` and so had no schedule editor at all — the card simply did
+  not appear. It now gets the seven ranges its firmware reads, five of them
+  confirmed by watching PetKit's own cloud write them. Two more are real fields
+  the firmware knows and no capture has ever shown a value for, so they are
+  deliberately still not sent: this reply is repeated on every poll, and an
+  invented window would overwrite the owner's on every one of them.
+- The fountain's drain and flush times moved into the Schedules card, next to
+  the periods. They were under Controls, which described where we store them
+  rather than what they are.
+- **A device's timezone can now be set from the panel, and it actually moves the
+  clock.** Until now a box provisioned before the Bluetooth payload carried a
+  timezone burned UTC into its video watermarks until it was provisioned again;
+  the documentation said that was the only way. It is not — a `property.set`
+  does it at runtime, provided the value is sent as a **string**, which is what
+  the firmware's parser reads. Verified on hardware: as a number nothing
+  happened; as a string the watermark moved within half a minute. Devices tab →
+  Timezone. The device reports back to one decimal, so 5.75 reads as 5.8.
+- **"Times Dispensed" and "Total Dispensed" finally hold a value.** No feeder
+  reports those totals — on PetKit's own service the cloud sums them from the
+  feed events, so being the cloud means doing the same. They count per day,
+  following the device's own reading of the date, and a jammed feed that
+  dispensed nothing counts as nothing. A dual-hopper reports per hopper, and
+  both are counted. They also carry a statistics class now, so a midnight
+  rollover is not recorded as the value falling.
+- **"Desiccant Days Left" counts down.** The sensor and its Reset button both
+  existed and nothing connected them; the pack has no representation in the
+  device protocol, so the date we record is the only possible source.
+- **A camera feeder should now upload what it records.** Three separate things
+  stopped it, all reported independently from a D4H and a D4SH: the block that
+  tells a device its cloud storage is active was sent only to camera litter
+  boxes; the schedule that gates recording was sent in the wrong one of the two
+  shapes that field family uses, so the device kept `camera: 1` while logging
+  "camera not enable"; and the three upload enables a feeder needs were never
+  seeded, which the firmware reads as off. Panel switches (below) push them to a
+  feeder that is already running. Confirmed live on a D4SH: with the recording
+  window fixed the camera re-arms and feeds upload again.
+- **The CA patcher no longer leaves stale copies of our certificate behind.**
+  Re-applying it used to be an error; now it replaces. That matters because the
+  device anchors on the FIRST certificate whose subject matches, so an old copy
+  in front of the current one fails verification while the right one sits
+  further down, unread — indistinguishable from a broken certificate.
+- The TLS certificate now names the address devices are actually told to upload
+  to, not just the host's own detected IP. Those agree on a plain install and
+  part company behind a reverse proxy, on a multi-homed host, or when the
+  address is configured as a name. An existing certificate is never re-issued
+  silently — that would invalidate the copy already patched into every device —
+  but the add-on now says so in the log.
+- A Timeline filter chip is hidden while it has no events and is not the one
+  selected. With eight of them a row of permanent zeros ran off the edge of
+  the card.
+- **A feeder's and a fountain's events now form cards.** Grouping starts at the
+  events allowed to head one, and feeding and drinking were not among them — so
+  every meal arrived as three unrelated rows (`feed_start`, `feed_over`,
+  `eat_over`) instead of one card, on both transports. The session id that ties
+  them together was already correct and simply unused.
+- **Feeding, Drinking and Cleaning are filter chips.** They belonged to no
+  bucket at all, so those cards showed under "All" and were reachable from no
+  other filter — a water refill could only be found by scrolling past it.
+- **A card is headed by the time the device says, not the time we received it.**
+  Only a toilet visit carries the field that was being read, so every other kind
+  of card showed its arrival: on a reported T6, 14:20:19 for something the
+  device and its own video watermark both put at 14:19:58.
+- **The Debug view's timestamps follow the browser, like everything else on the
+  page.** They were formatted in the container's timezone while the card above
+  them used the reader's, so an install whose container runs UTC showed one
+  instant twice, two hours apart, in adjacent rows.
+- The two W7H time-of-day fields step by a minute instead of a second; every
+  value they have ever carried is minute-aligned.
+- **The Timeline no longer rebuilds itself out from under you.** It refreshes
+  400 ms after every event and media frame, and it used to do that by replacing
+  the entire view — so on an install with several talkative devices a playing
+  video restarted constantly, "show N more steps" collapsed the instant it was
+  opened, and the device dropdown closed under the pointer before anything could
+  be selected. Cards are now reconciled by id and left alone when their contents
+  have not changed, a video whose source is unchanged is carried across rather
+  than re-created, and the filter counts are written only when they differ.
+- **Changing one setting no longer erases the rest.** A write records only the
+  field it changed, and both the device's `dev_device_info` answer and the Home
+  Assistant state document substituted that stored dict for the seeded defaults
+  instead of merging. So the first change to any setting cut the block the
+  device reads as its whole configuration down to a single key, and left every
+  other switch, number and select in Home Assistant reading "unknown". Worst on
+  a fountain, which reports no settings of its own to refill it with.
+- **`dev_upload_file_info` (non-v2) is now routed.** The D4SH calls this
+  endpoint alongside v2 (4 requests in a capture), and it was falling through
+  to the catch-all — so those media uploads never reached the pipeline.
+- **`dev_iot_device_info` returns the ali-wrapped format.** The cloud returns
+  `{ali: {...}}` for every device, including those calling the "ESP32" endpoint.
+  The previous flat format was an assumption from localkit that no capture
+  supported. D4SH reads `result.ali.mqttHost`, so flat = null MQTT host.
+- **`dev_feed_get` nextTick is now relative.** Was `now() + 7200` (an absolute
+  timestamp the device added another `now()` to, yielding ~56 years). The cloud
+  returns `86340` (relative seconds). Fixed to `7200`.
+- **`dev_attire_over` returns `1`, not `[0]`.** The real cloud returns an
+  integer; the array was copied from an older unverified capture.
+- **STS `deviceType` is per-device.** Was hardcoded 21 (T5); the cloud returns
+  25 for a D4SH.
+- **Camera feeder now has individual media switches.** `Enable Feed Video` (a
+  one-way button) is replaced by `Feed Picture`, `Eat Video`, `Voice Prompt`,
+  `Quiet Voice Prompts`, and `Do Not Disturb` — each confirmed as independent
+  0/1 in a D4SH proxy capture.
+- **`FEED_RESULT` codes 3 (blocked) and 11 (nothing dispensed) are mapped.**
+- **Feeder error flags are labelled.** `blk_f` now reads "Food outlet blocked"
+  instead of the raw firmware abbreviation. All 8 D4SH `err{}` keys are named.
+- **12 missing feeder settings seeded** from a D4SH cloud capture, and
+  `factor: 10` removed (cloud sends none).
+- **Custom sound upload.** Camera feeders can upload audio files through the
+  panel, select and play them on the device. `dev_sound_get` serves them with
+  local download URLs instead of the previous empty list.
+- **Feed and cleaning schedules sync from proxy mode.** A `property.set{feed}`
+  or `property.set{schedule}` from the cloud is now stored locally and served
+  back by `dev_feed_get` / `dev_schedule_get`.
+- **`play_sound` button and `selected_sound` number** added for camera feeders.
+- **`disturbMode` restored for camera feeders.** Was removed claiming "not in
+  firmware", but a proxy capture proves the cloud sends it.
+
 ## 2.0.1 — 2026-08-11
 
 - Fixed a race condition when applying patchers to two devices at the same time:
