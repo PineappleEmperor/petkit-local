@@ -314,13 +314,14 @@ def _match_oss_sts(node: dict, path: str, policy: RedactionPolicy,
     if policy.media_to_real_oss:
         return node
 
-    ours = payloads.to_oss_sts(device, policy.bucket_endpoint,
-                               policy.aes_key)["result"]["capability"]
+    sts = payloads.to_oss_sts(device, policy.bucket_endpoint,
+                              policy.aes_key)["result"]
     patched = dict(node)
-    patched["capability"] = ours
+    patched["capability"] = sts["capability"]
+    patched["type"] = sts["type"]
     out.records.append(Redaction(
         rule=RULE_OSS_STS, path=f"{path}.capability" if path else "capability",
-        original=node["capability"], replacement=ours,
+        original=node["capability"], replacement=sts["capability"],
         note="upstream tried to repoint media uploads",
     ))
     return patched
