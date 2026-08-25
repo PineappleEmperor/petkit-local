@@ -252,18 +252,86 @@ FEEDER_BINARY_SENSORS = [
 #: report the singular `food` instead (shown by the family `food_low`); that is
 #: inference from the cloud model, unverified until a D4H is captured.
 #:
-#: 2 = has food and 0 = empty, reported by the D4SH owner, who never saw 1 in
-#: between. So this is not a percentage, and it is not a two-state either until
-#: somebody sees the middle value — hence an enum rather than the binary "Food
-#: Low" the family already has. An unmapped value renders as the raw number
-#: (`_enum_sensor_value_template`), so a 1 that does turn up is visible.
+#: The rule is a THRESHOLD, not a two-value enum, and it is not ours: the
+#: reference integration reads these as `food1 < 1` -> "needs food"
+#: (RobertD502/home-assistant-petkit, `binary_sensor.py::FoodLevelHopper1/2`).
+#: So 0 is empty and ANY value >= 1 means there is food.
+#:
+#: That one rule covers both families, which is why they share this list. A
+#: D4SH owner reported 0 and 2 and never saw 1; a D4S reported 1 from both
+#: hoppers while its owner confirmed both were full (2026-08-25, firmware
+#: 1.198). Two spellings of "has food", one threshold behind them — reading
+#: those as two per-family enums would have been a coincidence mistaken for a
+#: pattern.
+#:
+#: Only the three OBSERVED values are mapped. A 3 would render as the raw
+#: number (`_enum_sensor_value_template`, and no `device_class="enum"`), which
+#: is the point: a value no device has been seen to emit stays visible instead
+#: of being quietly bucketed into a label the threshold merely predicts.
 FEEDER_DUAL_HOPPER_SENSORS = [
     EntityDef(component="sensor", key="hopper1_level", name="Hopper 1",
               value_path="state.food1", icon="mdi:silo",
-              options=["Empty", "Has food"], option_values=[0, 2]),
+              options=["Empty", "Has food", "Has food"],
+              option_values=[0, 1, 2]),
     EntityDef(component="sensor", key="hopper2_level", name="Hopper 2",
               value_path="state.food2", icon="mdi:silo",
-              options=["Empty", "Has food"], option_values=[0, 2]),
+              options=["Empty", "Has food", "Has food"],
+              option_values=[0, 1, 2]),
+]
+
+#: Dispensed totals split per hopper, beside the combined `total_dispensed`
+#: the whole feeder family already has. DUAL-HOPPER ONLY.
+#:
+#: Parity with the reference integration, which gives a D4S
+#: `TotalDispensedHopper1`/`2` reading `feedState.realAmountTotal1`/`2` and
+#: reserves the unsuffixed `realAmountTotal` for single-hopper models
+#: (RobertD502/home-assistant-petkit). The same `1`/`2` suffixing runs through
+#: its whole feedState vocabulary -- `addAmountTotal1/2`, `planAmountTotal1/2`,
+#: `planRealAmountTotal1/2` -- so this is the family's convention, not a
+#: one-off.
+#:
+#: DEFAULT-DISABLED on purpose. The combined figure is what almost everyone
+#: wants; the split matters when one hopper is jamming and the other is not,
+#: which is a debugging question rather than a daily one. HA honours
+#: `enabled_by_default` on first discovery only, so anyone who turns them on
+#: keeps them.
+#:
+#: Both are synthesised locally, exactly as the combined total is: no feeder
+#: state report we have seen carries a `feedState` block at all, so the cloud
+#: sums these from feed events and being the cloud means doing the same
+#: (`events/normalize.py::_accumulate_feed_totals`).
+FEEDER_DUAL_TOTAL_SENSORS = [
+    EntityDef(component="sensor", key="hopper1_dispensed", name="Hopper 1 Dispensed",
+              value_path="state.feedState.realAmountTotal1", unit="g",
+              state_class="total_increasing", icon="mdi:scale",
+              enabled_by_default=False),
+    EntityDef(component="sensor", key="hopper2_dispensed", name="Hopper 2 Dispensed",
+              value_path="state.feedState.realAmountTotal2", unit="g",
+              state_class="total_increasing", icon="mdi:scale",
+              enabled_by_default=False),
+]
+
+#: How much the pet actually ate, as COUNT and DURATION rather than grams.
+#:
+#: Parity with the reference integration, which gives a D4S `TimesEaten`
+#: (`feedState.eatCount`) and `AvgEatingTime` (`feedState.eatAvg`, seconds) --
+#: RobertD502/home-assistant-petkit. Note what it does NOT give a D4S:
+#: `AmountEaten` (`eatAmountTotal`) is a D3 entity there, because a bowl scale
+#: is what weighs a meal and a hopper pair has none.
+#:
+#: Both are synthesised from the eating episode's own events, `eat_start` and
+#: `eat_over` (`events/normalize.py::_accumulate_eat_totals`), for the reason
+#: every other `feedState` figure is: no feeder state report carries the block
+#: at all, so the cloud sums it from events and being the cloud means doing the
+#: same.
+FEEDER_EATING_SENSORS = [
+    EntityDef(component="sensor", key="times_eaten", name="Times Eaten",
+              value_path="state.feedState.eatCount",
+              state_class="total_increasing", icon="mdi:cat"),
+    EntityDef(component="sensor", key="avg_eating_time", name="Average Eating Time",
+              value_path="state.feedState.eatAvg", unit="s",
+              device_class="duration", state_class="measurement",
+              icon="mdi:timer-outline"),
 ]
 
 #: The single hopper-level reading for a one-hopper next-gen feeder (D4H). It is

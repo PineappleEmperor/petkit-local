@@ -234,10 +234,24 @@ FEEDER_HALLS = ("left_hall", "home_hall", "right_hall", "left_sub_hall")
 #: "feed chute blocked" fault. They are carried so the values are visible in the
 #: panel and in diagnostics -- an entity that names them is a different decision,
 #: made per key in `ha/entities/sensors.py`.
+#: The hopper-pair contents, and the ONLY state keys a dual-hopper feeder is
+#: known to share across firmware families. Kept apart from
+#: `FEEDER_NEXT_GEN_FIELDS` below because that tuple means "keys we read out of
+#: the D4SH `ctrl` disassembly", and the ESP32 D4S runs no such binary: it sends
+#: these two and none of the rest.
+#:
+#: 2 = has food and 0 = empty, reported by the D4SH owner in issue #2. A real
+#: D4S report (2026-08-25, firmware 1.198) carries `food1: 1, food2: 1`, so 1
+#: IS emitted by hardware -- but what it means is unsettled, and the enum in
+#: `ha/entities/sensors.py` deliberately leaves it unmapped so it renders as a
+#: raw 1 rather than being guessed into "Empty" or "Has food".
+FEEDER_DUAL_HOPPER_FIELDS = ("food1", "food2")
+
 FEEDER_NEXT_GEN_FIELDS = (
-    # Hopper contents, one per hopper. 2 = has food and 0 = empty, reported by
-    # the owner in #2; 1 was never observed and is deliberately not guessed at.
-    "food1", "food2",
+    # Hopper contents, one per hopper. See FEEDER_DUAL_HOPPER_FIELDS above --
+    # repeated here because a D4H/D4SH gets them from this tuple, and
+    # `_extract_camel` copying a key twice is a no-op.
+    *FEEDER_DUAL_HOPPER_FIELDS,
     # Leftover food in the bowl. -1 is "not measured", not a level: the firmware
     # logs `recv feed start leftover set(-1)` as it begins a feed, and the one
     # real reading seen (46) appeared while surplus control was being changed.

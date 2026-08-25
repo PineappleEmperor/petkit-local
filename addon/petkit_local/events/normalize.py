@@ -364,6 +364,16 @@ def from_event_report(device: Device, form: dict) -> dict:
 #: would report a clean that never happened.
 _CLEAN_DONE_WORDS = frozenset({"cleaning", "litter empty", "reset"})
 
+#: The completion half of an EATING episode, as against a FEEDING one. Both are
+#: KIND_FEEDING with ROLE_DONE, so this is the only thing separating them.
+_EAT_DONE_WORDS = frozenset({"eating"})
+
+#: The opening half. Matched on the static label because a start event carries
+#: no `done_word` to split on, and `feed_start` and `eat_start` are otherwise
+#: identical in kind and role. Same coupling `_CLEAN_DONE_WORDS` already has to
+#: the table's strings.
+_EAT_START_LABELS = frozenset({"Eating started"})
+
 #: HA `event` entity per event_kind. The MQTT path can key on its own semantic
 #: names, but the HTTP path cannot: there `event_type` is a numeric code whose
 #: meaning depends on the device category, so both go through `codes.lookup`
@@ -468,8 +478,19 @@ def apply_derived_state(device: Device, event_type: str, content: dict) -> None:
             device.state["petWeight"] = weight
 
     elif code.kind == codes.KIND_FEEDING and code.role == codes.ROLE_DONE:
-        device.state["lastFeed"] = _now_iso()
-        _accumulate_feed_totals(device, content)
+        # KIND_FEEDING covers the FOOD going out and the PET eating it, and
+        # both have a ROLE_DONE. Splitting on `done_word` is what keeps an
+        # `eat_over` out of Last Feed and out of the dispensed totals -- it
+        # dispensed nothing, and counting it there would inflate both.
+        if code.done_word in _EAT_DONE_WORDS:
+            _accumulate_eat_totals(device, content)
+        else:
+            device.state["lastFeed"] = _now_iso()
+            _accumulate_feed_totals(device, content)
+
+    elif (code.kind == codes.KIND_FEEDING and code.role == codes.ROLE_START
+          and code.label in _EAT_START_LABELS):
+        _remember_eat_start(device, content)
 
 
 def _accumulate_feed_totals(device: Device, content: dict) -> None:
@@ -495,12 +516,16 @@ def _accumulate_feed_totals(device: Device, content: dict) -> None:
     stays inside it. The totals are lost on restart and rebuilt from the day's
     remaining feeds, which is the same trade every other `state` key makes.
     """
-    grams = sum(
-        to_float(content.get(key), 0) or 0
-        for key in ("real_amount", "real_amount1", "real_amount2",
-                    "realAmount", "realAmount1", "realAmount2")
-        if key in content
-    )
+    per_hopper = {}
+    for hopper in (1, 2):
+        for key in (f"real_amount{hopper}", f"realAmount{hopper}"):
+            if key in content:
+                per_hopper[hopper] = (to_float(content.get(key), 0) or 0)
+    unsuffixed = 0.0
+    for key in ("real_amount", "realAmount"):
+        if key in content:
+            unsuffixed = to_float(content.get(key), 0) or 0
+    grams = unsuffixed + sum(per_hopper.values())
     if grams <= 0:
         return
     day = content.get("day")
@@ -510,6 +535,103 @@ def _accumulate_feed_totals(device: Device, content: dict) -> None:
     totals["times"] = int(to_float(totals.get("times"), 0) or 0) + 1
     totals["realAmountTotal"] = round(
         (to_float(totals.get("realAmountTotal"), 0) or 0) + grams, 1)
+    # And the per-hopper split beside the combined figure, under the reference
+    # integration's suffixed names (`realAmountTotal1`/`2`). Only for a hopper
+    # the event actually named: a feeder that reports the unsuffixed
+    # `real_amount` has one hopper and must not sprout an empty second total.
+    for hopper, amount in per_hopper.items():
+        field_name = f"realAmountTotal{hopper}"
+        totals[field_name] = round(
+            (to_float(totals.get(field_name), 0) or 0) + amount, 1)
+    device.state["feedState"] = totals
+
+
+def _remember_eat_start(device: Device, content: dict) -> None:
+    """Park the moment an eating episode opened, for `_accumulate_eat_totals`.
+
+    Only needed as a FALLBACK. A completion event usually carries its own
+    `start_time` -- `feed_over` does, and the one captured `eat_start` (D4SH
+    fw 248, code 5) carries `{img, aesKey, mark, start_time}` -- so the pair is
+    normally resolvable from the closing event alone. This covers the firmware
+    that does not repeat it.
+
+    It lives in `feedState` because that dict is already the transient,
+    unpersisted scratch space for exactly this kind of running figure, and
+    losing it on restart costs one episode's average.
+    """
+    started = to_float(content.get("start_time", content.get("startTime")), None)
+    totals = device.state.get("feedState")
+    if not isinstance(totals, dict):
+        totals = {"day": content.get("day"), "times": 0, "realAmountTotal": 0}
+    totals["eatStartAt"] = started if started is not None else time.time()
+    device.state["feedState"] = totals
+
+
+def _eat_duration(content: dict, totals: dict) -> float | None:
+    """Seconds an eating episode lasted, or None if nothing says.
+
+    Three sources, best first. An explicit duration is taken verbatim. Failing
+    that the episode's own timestamps are subtracted -- `completed_at` and
+    `start_time`, the pair `feed_over` already carries. Failing THAT, the
+    remembered `eat_start` is subtracted from now.
+
+    A non-positive result is rejected rather than clamped: a zero-length meal
+    is a clock that disagrees with itself, and averaging it in would drag the
+    figure toward nothing for reasons that have nothing to do with the cat.
+    """
+    for key in ("eat_time", "eatTime", "duration"):
+        explicit = to_float(content.get(key), None)
+        if explicit is not None:
+            return explicit if explicit > 0 else None
+
+    started = to_float(content.get("start_time", content.get("startTime")), None)
+    if started is None:
+        started = to_float(totals.get("eatStartAt"), None)
+    if started is None:
+        return None
+
+    ended = to_float(content.get("completed_at", content.get("completedAt")), None)
+    if ended is None:
+        ended = time.time()
+    span = ended - started
+    return span if span > 0 else None
+
+
+def _accumulate_eat_totals(device: Device, content: dict) -> None:
+    """Keep today's "Times Eaten" and "Average Eating Time" running.
+
+    Parity with the reference integration, which gives a D4S `TimesEaten`
+    (`feedState.eatCount`) and `AvgEatingTime` (`feedState.eatAvg`, seconds)
+    -- RobertD502/home-assistant-petkit. No feeder state report carries a
+    `feedState` block at all, so PetKit's cloud sums these from events and
+    being the cloud means doing the same, exactly as the dispensed totals are
+    handled next door.
+
+    Per DAY, on the device's own `day`, for the reason `_accumulate_feed_totals`
+    gives: `eatAvg` is meaningless as a lifetime figure.
+
+    The average is kept as a running mean rather than a stored sum, so the two
+    published keys are the whole state -- no third field to fall out of step
+    with them.
+    """
+    totals = device.state.get("feedState")
+    if not isinstance(totals, dict):
+        totals = {"day": content.get("day"), "times": 0, "realAmountTotal": 0}
+
+    seconds = _eat_duration(content, totals)
+    totals.pop("eatStartAt", None)
+    if seconds is None:
+        device.state["feedState"] = totals
+        return
+
+    day = content.get("day")
+    if day is not None and totals.get("day") != day:
+        totals = {"day": day, "times": 0, "realAmountTotal": 0}
+
+    count = int(to_float(totals.get("eatCount"), 0) or 0) + 1
+    previous = to_float(totals.get("eatAvg"), 0) or 0
+    totals["eatCount"] = count
+    totals["eatAvg"] = round(previous + (seconds - previous) / count, 1)
     device.state["feedState"] = totals
 
 

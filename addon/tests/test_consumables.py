@@ -233,6 +233,13 @@ def test_a_dual_hopper_feed_counts_toward_the_daily_totals():
     A D4SH reports the amount PER HOPPER (`real_amount1`/`real_amount2`), so
     reading only the unsuffixed `real_amount` would leave a dual-hopper
     feeder's counters permanently at zero.
+
+    The split is kept beside the combined figure under the reference
+    integration's suffixed names, because that is what a dual-hopper model is
+    given there (`TotalDispensedHopper1`/`2` ->
+    `feedState.realAmountTotal1`/`2`). Note the two hoppers below dispense on
+    DIFFERENT feeds, so a per-hopper total that merely halved the combined one
+    would not produce these numbers.
     """
     from petkit_local.events import normalize
 
@@ -242,7 +249,70 @@ def test_a_dual_hopper_feed_counts_toward_the_daily_totals():
     normalize.apply_derived_state(dev, "feed_over", {
         "day": 20260808, "real_amount1": 3, "real_amount2": 0})
     assert dev.state["feedState"] == {"day": 20260808, "times": 2,
-                                      "realAmountTotal": 15}
+                                      "realAmountTotal": 15,
+                                      "realAmountTotal1": 3,
+                                      "realAmountTotal2": 12}
+
+
+def test_an_eating_episode_is_counted_and_timed_without_touching_the_feed():
+    """`KIND_FEEDING` covers the food going OUT and the pet eating it, and both
+    halves have a ROLE_DONE -- so before `done_word` split them, an `eat_over`
+    set Last Feed and ran the dispensed accumulator for a feed that never
+    happened.
+
+    Duration comes from the episode's own timestamps where the firmware repeats
+    them, and from the remembered `eat_start` where it does not. Parity with
+    the reference integration's `TimesEaten` (`eatCount`) and `AvgEatingTime`
+    (`eatAvg`, seconds).
+    """
+    from petkit_local.events import normalize
+
+    dev = Device(device_type="d4s", petkit_id=21)
+    normalize.apply_derived_state(dev, "feed_over", {
+        "day": 20260825, "real_amount1": 5, "real_amount2": 10})
+    dispensed = dict(dev.state["feedState"])
+
+    # Closing event carries both its own timestamps.
+    normalize.apply_derived_state(dev, "eat_over", {
+        "day": 20260825, "start_time": 1000, "completed_at": 1180})
+    totals = dev.state["feedState"]
+    assert (totals["eatCount"], totals["eatAvg"]) == (1, 180.0)
+    # The feed it followed is untouched: eating dispenses nothing.
+    assert totals["times"] == dispensed["times"] == 1
+    assert totals["realAmountTotal"] == dispensed["realAmountTotal"] == 15
+
+    # Second meal: a running mean, not a replaced value.
+    normalize.apply_derived_state(dev, "eat_over", {
+        "day": 20260825, "start_time": 2000, "completed_at": 2120})
+    assert (dev.state["feedState"]["eatCount"],
+            dev.state["feedState"]["eatAvg"]) == (2, 150.0)
+
+
+def test_an_eating_episode_falls_back_to_the_remembered_start():
+    """Firmware that does not repeat `start_time` in the closing event still
+    has to be timed, so `eat_start` is parked and subtracted."""
+    from petkit_local.events import normalize
+
+    dev = Device(device_type="d4s", petkit_id=22)
+    normalize.apply_derived_state(dev, "eat_start", {"day": 20260825, "start_time": 1000})
+    normalize.apply_derived_state(dev, "eat_over", {"day": 20260825, "completed_at": 1120})
+    assert dev.state["feedState"]["eatAvg"] == 120.0
+    # The scratch key does not outlive the episode it timed.
+    assert "eatStartAt" not in dev.state["feedState"]
+
+
+def test_an_eating_episode_nobody_timed_invents_no_average():
+    """No duration, no timestamps, no remembered start -- so no figure. An
+    averaged zero would drag the reading toward nothing for reasons that have
+    nothing to do with the pet."""
+    from petkit_local.events import normalize
+
+    dev = Device(device_type="d4s", petkit_id=23)
+    normalize.apply_derived_state(dev, "eat_over", {"day": 20260825})
+    assert "eatCount" not in dev.state.get("feedState", {})
+    assert "eatAvg" not in dev.state.get("feedState", {})
+    # And it is still not a feed.
+    assert "lastFeed" not in dev.state
 
 
 def test_a_jammed_feed_dispensed_nothing_and_counts_as_nothing():
@@ -264,6 +334,11 @@ def test_the_totals_start_over_when_the_device_says_the_day_changed():
     normalize.apply_derived_state(dev, "feed_over", {"day": 20260809, "real_amount": 4})
     assert dev.state["feedState"] == {"day": 20260809, "times": 1,
                                       "realAmountTotal": 4}
+    # A feeder that reports the unsuffixed `real_amount` has ONE hopper and
+    # must not sprout a per-hopper split reading zero for a hopper it does
+    # not have.
+    assert "realAmountTotal1" not in dev.state["feedState"]
+    assert "realAmountTotal2" not in dev.state["feedState"]
 
 
 def test_the_feed_totals_are_not_persisted():

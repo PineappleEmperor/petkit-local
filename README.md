@@ -106,7 +106,8 @@ to sit at "unknown".
 | YumShare Solo 2 | D4H | ✅ | ✅ |
 | YumShare Dual-Hopper 2 | D4SH | ✅ | ✅ |
 | Fresh Element Solo | D4 | — | — |
-| Feeder D3 / D4s | D3, D4S | — | — |
+| Fresh Element Gemini | D4S | — | — |
+| Feeder D3 | D3 | — | — |
 | Feeder / Feeder Mini | feeder, feedermini ‡ | — | — |
 | Pura Air smart spray | K2, K3 † | — | — |
 

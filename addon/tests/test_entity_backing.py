@@ -160,8 +160,12 @@ PASSTHROUGH_ATTESTED = {
     # rows: each is a JSON key in the state builder of a real D4SH 867 `ctrl`,
     # and each is present in BOTH real reports an owner posted in issue #2 —
     # one per transport, so neither is a quirk of one frame type.
-    "food1": "D4SH 867 ctrl state builder; both reports in issue #2",
-    "food2": "D4SH 867 ctrl state builder; both reports in issue #2",
+    # These two now have a THIRD source on unrelated firmware: a real D4S
+    # (ESP32, 1.198) reported `food1`/`food2` on 2026-08-25. Its value spelling
+    # differs -- 1 for "has food" where the D4SH says 2 -- which is why the
+    # enum lives in a per-family list and only the KEY is shared.
+    "food1": "D4SH 867 ctrl state builder; both reports in issue #2; D4S 1.198 report",
+    "food2": "D4SH 867 ctrl state builder; both reports in issue #2; D4S 1.198 report",
     "door": "D4SH 867 ctrl state builder; both reports in issue #2",
     "bowl": "D4SH 867 ctrl 'recv feed start leftover set(-1)'; both reports in issue #2",
     "feeding": "D4SH 867 ctrl state builder; both reports in issue #2",
@@ -202,6 +206,11 @@ PASSTHROUGH_UNVERIFIED = {
     # interesting half: the same two reports carry `food1`/`food2` and no
     # `food`, no `weight`. So these stay the reference integration's cloud-model
     # names, and both are now excluded on the models we can actually check.
+    #
+    # The D4S report of 2026-08-25 says the same thing on unrelated firmware:
+    # `food1`/`food2` present, `food` and `weight` absent. `batteryPower` above
+    # is in the same position for the same reason -- a cloud-model name that no
+    # device we have read has ever put on the wire.
     "food", "weight",
     "liquid", "battery", "temp",
 }

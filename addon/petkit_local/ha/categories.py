@@ -41,7 +41,8 @@ from petkit_local.ha.entities.selects import (
     FEEDER_SELECTS, FOUNTAIN_SELECTS, FOUNTAIN_W7H_SELECTS, LITTER_SELECTS,
 )
 from petkit_local.ha.entities.sensors import (
-    FEEDER_BINARY_SENSORS, FEEDER_DUAL_HOPPER_SENSORS, FEEDER_NEXT_GEN_HALL_SENSORS,
+    FEEDER_BINARY_SENSORS, FEEDER_DUAL_HOPPER_SENSORS, FEEDER_DUAL_TOTAL_SENSORS,
+    FEEDER_EATING_SENSORS, FEEDER_NEXT_GEN_HALL_SENSORS,
     FEEDER_NEXT_GEN_SENSORS, FEEDER_SINGLE_HOPPER_SENSORS, FEEDER_SENSORS,
     FOUNTAIN_BINARY_SENSORS, FOUNTAIN_SENSORS,
     FOUNTAIN_W7H_BINARY_SENSORS, FOUNTAIN_W7H_HALL_SENSORS, FOUNTAIN_W7H_SENSORS,
@@ -234,9 +235,37 @@ CATEGORY_SPECS: dict[str, CategorySpec] = {
             # `food1`/`food2`), like the dual buttons/numbers beside it. The D4H
             # side is GUESSED — no D4H has been captured; it bets on singular
             # `food`, not the D4SH's `food1`. See FEEDER_SINGLE_HOPPER_SENSORS.
+            # The Gemini is a hopper PAIR on ESP32 firmware. It takes the two
+            # per-hopper controls and the two per-hopper LEVEL readings, and
+            # nothing else from the embedded-Linux rows below.
+            #
+            # `hopper1/2_level` read `state.food1`/`food2`, and those key names
+            # arrive here from two sources that cannot have copied each other:
+            # the D4SH `ctrl`'s own state builder (this repo's D4SH row), and
+            # RobertD502/home-assistant-petkit, a client of PetKit's CLOUD API,
+            # which singles the D4S out of the generic food-level sensor and
+            # gives it `state.food1`/`state.food2` instead
+            # (`binary_sensor.py::FoodLevelHopper1/2`). A device key and a cloud
+            # key agreeing is the strongest evidence available short of a
+            # capture -- and it is why `food_low`, which reads the SINGULAR
+            # `state.food`, is excluded for this model below: that same
+            # integration excludes the D4S from it for the same reason.
+            #
+            # `FEEDER_NEXT_GEN_SENSORS` and the hall block stay out regardless.
+            # Those are `bowl`, `door`, the infrared trio and `batV` -- read out
+            # of an embedded-Linux `ctrl` this device does not run, corroborated
+            # by nothing, and the cloud model gives the D4S none of them.
+            # The SAME hopper list as the D4SH. The two report different
+            # numbers -- 1 here, 2 there -- but the reference integration reads
+            # both through one threshold (`food < 1` is "needs food"), so one
+            # table covers them and the difference is not a per-family enum.
+            ("d4s", (*FEEDER_DUAL_HOPPER_SENSORS, *FEEDER_DUAL_TOTAL_SENSORS,
+                     *FEEDER_EATING_SENSORS,
+                     *FEEDER_DUAL_BUTTONS, *FEEDER_DUAL_NUMBERS)),
             ("d4h", (*FEEDER_NEXT_GEN_SENSORS, *FEEDER_SINGLE_HOPPER_SENSORS,
                      *FEEDER_NEXT_GEN_HALL_SENSORS)),
             ("d4sh", (*FEEDER_NEXT_GEN_SENSORS, *FEEDER_DUAL_HOPPER_SENSORS,
+                      *FEEDER_DUAL_TOTAL_SENSORS, *FEEDER_EATING_SENSORS,
                       *FEEDER_NEXT_GEN_HALL_SENSORS,
                       *FEEDER_DUAL_BUTTONS, *FEEDER_DUAL_NUMBERS)),
         ),
@@ -252,6 +281,41 @@ CATEGORY_SPECS: dict[str, CategorySpec] = {
         # percentage. `battery_installed` reads `batteryPower`, where the device
         # sends `batV`/`ubat`.
         model_excludes=(
+            # The Gemini's four. `battery_installed` is the awkward one and it
+            # is dropped for a NARROWER reason than the other three: not that
+            # the entity is inapplicable, but that nothing on the wire can
+            # currently answer it.
+            #
+            # It genuinely applies. RobertD502/home-assistant-petkit gives
+            # `BatteryInstalled` to `d4` and `d4s` specifically (and NOT to the
+            # D4SH), reading `state['batteryPower'] == 1`, and the hardware
+            # takes optional backup cells. So PetKit's cloud publishes this for
+            # a Gemini and derives it from something.
+            #
+            # We cannot derive it, and the obvious candidate is disproven. A
+            # real D4S reported `batV: 444` (4.44 V, near-exactly three fresh
+            # AA cells) while its owner confirmed the battery compartment was
+            # EMPTY -- and that the feeder will not run a manual feed with the
+            # mains lead pulled. So on this firmware `batV` is a rail reading,
+            # not the cell stack, and >0 does not mean "fitted". That is the
+            # opposite of the D4SH, whose owner saw `batV: 0` with no cells.
+            # `ubat: 0` cannot separate "no batteries" from "batteries present,
+            # not in use" either.
+            #
+            # Publishing the entity anyway would read unknown forever;
+            # deriving it from `batV` would assert "installed" on a device with
+            # no battery in it, which is worse. It comes back the moment
+            # somebody captures a D4S WITH cells fitted and a field moves.
+            #
+            # `food_low` reads the singular `state.food` a hopper pair does not
+            # send -- confirmed absent in that same report, which carries
+            # `food1`/`food2` instead. `food_in_bowl` (`state.weight`) and
+            # `food_bowl_pct` (`state.bowl`) are likewise absent from it, and
+            # are given to no feeder in the cloud model except the D3, whose
+            # bowl is a scale.
+            ("d4s", frozenset({
+                "food_low", "food_in_bowl", "food_bowl_pct", "battery_installed",
+            })),
             ("d4sh", frozenset({
                 "food_low", "food_in_bowl", "food_bowl_pct", "battery_installed",
             })),

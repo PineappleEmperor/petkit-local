@@ -338,6 +338,36 @@ D4SH_STATE = {
 }
 
 
+#: The state a real D4S -- the Fresh Element Gemini -- reports, verbatim from
+#: the device's own `dev_state_report` on 2026-08-25, firmware 1.198. It is the
+#: first capture of this model anywhere, and it settles two things the D4S
+#: support was written without: the hopper pair is real on the wire (`food1`
+#: and `food2`, no singular `food`), and this ESP32 firmware sends NONE of the
+#: embedded-Linux `ctrl` keys beside them -- no `bowl`, no `ir_b_*`, no
+#: `ultra_sta`, no `ready`, no `cameraStatus`, and no `batteryPower`.
+#:
+#: It also carries `food1: 1`, a value the D4SH owner never saw -- and the
+#: owner confirmed both hoppers were FULL, which is what puts 1 and the
+#: D4SH's 2 on the same side of the reference integration's `food < 1`
+#: threshold. `batV: 444` was captured with the battery compartment EMPTY,
+#: which is why battery presence must not be derived from it.
+D4S_STATE = {
+    "wifi": {"ssid": "HomeWIFI", "rsq": -64, "bssid": "aabbccddeeff"},
+    "hardware": 1, "firmware": "1.198", "locale": "Europe/London",
+    "timezone": "1.0",
+    "err": {"DC": 0, "sys": 0, "rtc_c": 0, "moto": 0, "blk_f": 0, "blk_d": 0,
+            "hallL": 0, "hallH": 0, "hallR": 0, "hallLS": 0, "ir": 0,
+            "proxL": 0, "proxR": 0},
+    "sensor": {"left_hall": 1, "home_hall": 0, "right_hall": 1,
+               "left_sub_hall": 1},
+    "ir": 0, "prox": 1, "proxl_rw": 159, "proxr_rw": 135,
+    "batV": 444, "DCV": 5892, "runtime": 47712, "ubat": 0,
+    "door": 0, "ota": 0, "food1": 1, "food2": 1, "feeding": 0, "eating": 0,
+    "other": ("heap:109188,res:1,rl=1258,wlpl=1,wlpr=1,tswd=0_0,"
+              "PX=158_134,near=1"),
+}
+
+
 def test_both_transports_read_the_same_d4sh_report_the_same_way():
     """A D4SH publishes `thing/event/property/post` — the topic is in its own
     firmware — and that path reaches `normalize_property_params` ALONE, while
@@ -356,6 +386,18 @@ def test_both_transports_read_the_same_d4sh_report_the_same_way():
         assert key in http_side, f"{key} missing on the HTTP path"
         assert key in mqtt_side, f"{key} missing on the MQTT path"
         assert http_side[key] == mqtt_side[key], key
+
+    # The D4S reaches the same two hopper keys by a DIFFERENT route, and got
+    # them on neither transport until it did. The extraction was gated on
+    # `DEVICE_TYPES_FEEDER_NEXT_GEN` -- the firmware we disassembled -- which
+    # this ESP32 model is correctly not a member of, so both readings were
+    # dropped and `hopper1_level`/`hopper2_level` published to HA and read
+    # unknown forever. Gating the pair on the HOPPER COUNT is what fixed it.
+    d4s_http = parse_state_report("d4s", D4S_STATE)
+    d4s_mqtt = normalize_property_params("d4s", D4S_STATE)
+    for key in ("food1", "food2"):
+        assert d4s_http[key] == 1, f"{key} missing on the HTTP path"
+        assert d4s_mqtt[key] == 1, f"{key} missing on the MQTT path"
 
 
 def test_a_feeder_that_reports_no_work_state_is_not_given_one():
@@ -384,6 +426,25 @@ def test_an_esp32_feeder_is_not_given_fields_its_hardware_never_sends():
     flat = parse_state_report("d4", D4SH_STATE)
     for key in ("food1", "food2", "ir_b_1", "DCV", "left_hall"):
         assert key not in flat, key
+
+    # The D4S takes the hopper pair and NOTHING else from that vocabulary, so
+    # it is the case that would break if somebody "fixed" the gate by widening
+    # `DEVICE_TYPES_FEEDER_NEXT_GEN` instead. Its real report carries none of
+    # these keys.
+    gemini = parse_state_report("d4s", D4S_STATE)
+    for key in ("bowl", "ir_b_1", "ir_b_2", "ir_c", "ultra_sta", "ready",
+                "cameraStatus", "left_hall", "right_hall",
+                # The three entities excluded for this model read the singular
+                # `food`, `weight` and `bowl`. None is in the report.
+                "food", "weight",
+                # `battery_installed` reads this. The device never sends it,
+                # and `batV` must NOT be substituted: it read 444 (4.44 V,
+                # about three fresh AA cells) with the compartment EMPTY, so
+                # deriving presence from it asserts a battery that is not
+                # there. `ubat: 0` cannot tell "none fitted" from "not in use".
+                "batteryPower"):
+        assert key not in gemini, key
+    assert D4S_STATE["batV"] == 444 and D4S_STATE["ubat"] == 0
 
 
 def test_the_device_ip_still_comes_out_of_the_other_string():

@@ -1070,13 +1070,28 @@ FEED_SRC: dict[int, str] = {
 
 #: Keyed by `err_code`; the parallel `result` values are 0, 8 and "other".
 #:
-#: 8 is INFERRED and rests on a single observation, so it is worded for what was
-#: seen rather than for what it might mean. A D4SH answered a `feed_realtime`
-#: carrying `amount` — a field that model does not read — with a completed feed
-#: cycle, `real_amount1: 0`, `real_amount2: 0` and `err_code: 8` (issue #2).
-#: The owner then watched every later feed and never saw 8 again, including the
-#: ones that dispensed normally. So it accompanies a feed that put out nothing;
-#: whether it names the cause or only the outcome is not settled.
+#: 8 is INFERRED, and it now rests on TWO observations rather than one. A D4SH
+#: answered a `feed_realtime` carrying `amount` — a field that model does not
+#: read — with a completed feed cycle, `real_amount1: 0`, `real_amount2: 0` and
+#: `err_code: 8` (issue #2). The owner then watched every later feed and never
+#: saw 8 again, including the ones that dispensed normally.
+#:
+#: A D4S reproduced it exactly on 2026-08-25 (firmware 1.198), while running an
+#: add-on build that still classified the model as single-hopper and so sent it
+#: the same unread `amount`. Its `feed_over` carried `real_amount1: 0`,
+#: `real_amount2: 0`, `err_code: 8` and `result: 0`. That is worth more than a
+#: second data point: the two devices run unrelated firmware — embedded-Linux
+#: `ctrl` on one, ESP32 on the other — so the shared response to the same
+#: mistake is a property of the hopper-pair PROTOCOL, not of one image. It is
+#: also the wire-level confirmation that the D4S is a hopper pair, which until
+#: then had been inferred from pypetkitapi alone: the device volunteered the
+#: dual `real_amount1`/`real_amount2` spelling unprompted.
+#:
+#: Still not settled: whether 8 names the CAUSE or only the OUTCOME. Both
+#: observations are of the same provocation, so neither separates the two. Note
+#: the D4S reported `food1: 1, food2: 1` throughout — not the `food1: 0`/
+#: `food2: 0` that drives `result: 9` ("hoppers empty"), which is why an empty
+#: hopper is not the explanation here.
 #: Keyed by `content.result` in a feed_over event. NOT `err_code` — the two are
 #: parallel fields that carry different things (`err_code` names the fault,
 #: `result` names the outcome).

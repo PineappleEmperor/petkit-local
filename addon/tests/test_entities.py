@@ -8,7 +8,8 @@ VALID_COMPONENTS = {
     "event", "text", "image", "time",
 }
 
-DEVICE_TYPES = ["t5", "t6", "t7", "t3", "t4", "d4h", "d4sh", "d3", "d4", "w7h", "w5", "k2", "k3"]
+DEVICE_TYPES = ["t5", "t6", "t7", "t3", "t4", "d4h", "d4sh", "d4s", "d3", "d4",
+                "w7h", "w5", "k2", "k3"]
 
 # Golden entity counts per device type. An entity's identity in Home Assistant
 # is its unique_id, so silently dropping, adding or renaming one orphans it in
@@ -60,12 +61,21 @@ EXPECTED_ENTITY_COUNTS = {
     # their two times, volume, voice language, and the same two power buttons.
     # t6 +6 on 2026-08-12: the bagging mechanism it reports in every
     # property post and nothing here read. No other litter box has it.
+    # d4s 25 -> 29 and d4sh 61 -> 63 on 2026-08-25. Both duals gained the
+    # per-hopper dispensed totals (`hopper1/2_dispensed`), which ship
+    # DEFAULT-DISABLED -- they are still published and still counted here,
+    # because the count guards what discovery emits, not what HA shows.
+    # d4s 25 -> 28 on 2026-08-25: the Fresh Element Gemini is a hopper PAIR
+    # (`utils/const.py::DEVICE_TYPES_FEEDER_DUAL`). It gains the two per-hopper
+    # feed buttons, their two portion numbers and the two hopper-level sensors
+    # (+6), and loses `food_low`, `food_in_bowl` and `food_bowl_pct` (-3) —
+    # the singular-hopper and bowl-scale readings a hopper pair does not send.
     "t3": 46, "t4": 46, "t5": 82, "t6": 89, "t7": 82,
-    "feeder": 25, "feedermini": 25, "d3": 25, "d4": 25, "d4s": 25,
+    "feeder": 25, "feedermini": 25, "d3": 25, "d4": 25, "d4s": 31,
     # 2026-08-12: replaced `enable_feed_video` button with individual switches
     # (feed_picture, eat_video, voice_prompt, voice_disturb_mode, disturb_mode)
     # and added selected_sound number + play_sound button. Net +6.
-    "d4h": 57, "d4sh": 61,
+    "d4h": 57, "d4sh": 65,
     "w4": 24, "w5": 24, "ctw2": 24, "ctw3": 24, "w7h": 84,
     "k2": 12, "k3": 12,
 }

@@ -90,6 +90,13 @@ class EntityDef:
     max_value: float | None = None
     step: float = 1
     payload_on: str = "ON"
+    #: Publish the entity but leave it switched OFF in HA until the user asks
+    #: for it. For readings that are real but noisy or niche -- the per-hopper
+    #: dispensed totals beside a combined one, where most people want the
+    #: total and only a dual-hopper owner debugging one side wants the split.
+    #: HA honours this on FIRST discovery only: a user who enables the entity
+    #: keeps it enabled, which is the point.
+    enabled_by_default: bool = True
     payload_off: str = "OFF"
 
     @property
@@ -194,6 +201,8 @@ def build_discovery_payload(
         payload["icon"] = entity.icon
     if entity.entity_category:
         payload["entity_category"] = entity.entity_category
+    if not entity.enabled_by_default:
+        payload["enabled_by_default"] = False
 
     cmd = command_topic or command_topic_for(device_id, entity)
 

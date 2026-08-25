@@ -317,6 +317,89 @@ def test_cancel_on_an_esp32_feeder_is_left_alone():
     assert env["params"]["amount"] == 0
 
 
+def test_the_gemini_is_a_hopper_pair_even_though_it_is_not_the_one_disassembled():
+    """The D4S reports as a Dual-Hopper's sibling and takes the same keys.
+
+    It is the member of `DEVICE_TYPES_FEEDER_DUAL` NOT covered by the D4SH
+    disassembly — an ESP32 model running different firmware, where the "D4SH"
+    string compare says nothing. It is here on two independent sources:
+    pypetkitapi splits the family the same way (`DUAL_HOPPER_DEVICES =
+    [D4S, D4SH]`, and its `_validate_manual_feed` REFUSES to send a D4S an
+    `amount`), and an owner ran one against this add-on and got the exact D4SH
+    signature — a feed accepted, logged, and dispensing nothing.
+    """
+    d = Device(device_type="d4s", petkit_id=7, serial_number="G")
+    idx = _settable_index(d)
+    suffix, env = handle_ha_command(d, idx["feed"], "")
+
+    assert suffix == "feed_realtime"
+    assert "amount" not in env["params"], "the field a hopper pair ignores"
+    assert (env["params"]["amount1"], env["params"]["amount2"]) == (1, 1)
+
+
+def test_the_gemini_gets_the_controls_a_hopper_pair_needs():
+    """Without these there is no way to ask for a portion at all — the whole
+    second half of the report: no manual-feed input exposed in Home Assistant.
+
+    The per-hopper LEVELS come with them, and a real D4S report has since
+    settled what was inferred: on 2026-08-25 a Gemini on firmware 1.198 posted
+    `food1` and `food2` and no singular `food`, exactly as the D4SH `ctrl`'s
+    own state builder and RobertD502/home-assistant-petkit's cloud model both
+    predicted. `food_low` reads that absent singular, so it goes.
+
+    `FEEDER_NEXT_GEN_SENSORS` and the hall block stay out: read out of an
+    embedded-Linux `ctrl` this device does not run, and absent from that same
+    report. `battery_installed` goes with them — see the assertion below.
+    """
+    d = Device(device_type="d4s", petkit_id=7, serial_number="G")
+    gemini = {e.key: e for e in get_entities_for_device(d)}
+    keys = set(gemini)
+    assert {"feed_hopper_1", "feed_hopper_2", "hopper1_portions",
+            "hopper2_portions", "hopper1_level", "hopper2_level"} <= keys
+    assert "food_low" not in keys, "reads the singular state.food"
+
+    # The hopper levels are the SAME EntityDefs the D4SH gets, not a per-family
+    # copy. A D4S reads 1 for a full hopper and a D4SH reads 2, which looks
+    # like two vocabularies and is not: the reference integration reads both
+    # through one threshold, `food1 < 1` meaning "needs food"
+    # (RobertD502/home-assistant-petkit, `binary_sensor.py::FoodLevelHopper1/2`).
+    # Only the three OBSERVED values are mapped, so an unseen number renders
+    # raw rather than being bucketed into a label the threshold predicts.
+    dual = {e.key: e for e in get_entities_for_device(
+        Device(device_type="d4sh", petkit_id=8, serial_number="H"))}
+    for key in ("hopper1_level", "hopper2_level"):
+        assert gemini[key].option_values == [0, 1, 2], key
+        assert gemini[key].options == ["Empty", "Has food", "Has food"]
+        assert gemini[key].value_path == f"state.food{key[6]}"
+        assert gemini[key].option_values is dual[key].option_values
+    assert not keys & {"bowl_surplus", "door_raw"}, "embedded-Linux only"
+    # Reads `state.batteryPower`. PetKit's CLOUD model has that field for a
+    # D4S, which is why this entity was kept at first — but the value_path is
+    # served by what the DEVICE sends, and the real report carries `batV: 444`,
+    # `ubat: 0` and no `batteryPower`, the same spelling the D4SH uses. Kept,
+    # it reads unknown forever.
+    assert "battery_installed" not in keys
+
+
+def test_cancelling_on_the_gemini_keeps_the_esp32_service_and_the_dual_keys():
+    """Each half from the source that covers it.
+
+    The SERVICE stays localkit's `feed_realtime`: `feed_realtime_cancel` was
+    read out of an embedded-Linux `ctrl` this device does not run, and a
+    service name it has never been seen to accept is a silent no-op. The KEYS
+    are the pair, because a dual feeder does not read `amount` — the zero every
+    other ESP32 feeder cancels with would sail straight past it.
+    """
+    d = Device(device_type="d4s", petkit_id=7, serial_number="G")
+    idx = _settable_index(d)
+    suffix, env = handle_ha_command(d, idx["cancel_manual_feed"], "")
+
+    assert suffix == "feed_realtime"
+    assert env["method"] == "thing.service.feed_realtime"
+    assert "amount" not in env["params"]
+    assert (env["params"]["amount1"], env["params"]["amount2"]) == (0, 0)
+
+
 def test_every_button_maps_to_an_action():
     # Coherence: every button entity across all device types must resolve to a
     # known action, else pressing it silently does nothing.

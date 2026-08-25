@@ -32,6 +32,7 @@ from petkit_local.devices.consumables import (_days_left_from_reset, _extract_co
                                               apply_consumable_state, record_consumable_reset)
 from petkit_local.devices.state_tables import (CONSUMABLE_RECORD_KEY, CONSUMABLE_TOTALS,
                                                DEODORANT_TOTAL_DAYS, FEEDER_HALLS,
+                                               FEEDER_DUAL_HOPPER_FIELDS,
                                                FEEDER_NEXT_GEN_FIELDS, LITTER_CAMERA_HALLS,
                                                LITTER_CAMERA_MODELS, PRESENCE_FLAGS,
                                                SNAPSHOT_MARKER, SPRAY_TOTAL_DAYS,
@@ -39,7 +40,7 @@ from petkit_local.devices.state_tables import (CONSUMABLE_RECORD_KEY, CONSUMABLE
                                                W7H_STATE_FIELDS, WORK_MODE_IDLE)
 from petkit_local.events import codes
 from petkit_local.utils.coerce import to_float
-from petkit_local.utils.const import DEVICE_TYPES_FEEDER_NEXT_GEN
+from petkit_local.utils.const import DEVICE_TYPES_FEEDER_DUAL, DEVICE_TYPES_FEEDER_NEXT_GEN
 from petkit_local.utils.dicts import dig
 
 #: The names this module answers to. The evidence tables live in
@@ -137,6 +138,34 @@ def _extract_fountain_w7h(body: dict[str, Any], state: dict[str, Any],
                     state[dst] = stamp
         if "sw" in device_block:
             state["sw"] = device_block["sw"]
+
+
+def _extract_feeder_dual_hopper(body: dict[str, Any], state: dict[str, Any],
+                                device_type: str = "") -> None:
+    """Flatten a hopper PAIR's two contents readings into `state`.
+
+    Separate from `_extract_feeder_next_gen` because the two answer different
+    questions. That one is gated on `DEVICE_TYPES_FEEDER_NEXT_GEN`, which means
+    "the embedded-Linux `ctrl` whose state builder we have read" -- and the D4S
+    is an ESP32 model running none of it, so it is correctly absent from that
+    set and must stay absent: adding it there would also hand it `bowl`, the
+    `ir_b_*` trio, `ultra_sta`, `ready` and the hall block, which its firmware
+    does not send.
+
+    What it DOES send is the hopper pair. Confirmed on hardware 2026-08-25: a
+    D4S on firmware 1.198 posted a `dev_state_report` carrying `food1` and
+    `food2` beside `door`/`feeding`/`eating`, exactly as a D4SH does. Gated on
+    `DEVICE_TYPES_FEEDER_DUAL` so the reading follows the hopper count rather
+    than the firmware family -- which is the property the two entities actually
+    depend on.
+
+    Without this the `hopper1_level`/`hopper2_level` entities `ha/categories.py`
+    gives a D4S read `state.food1`/`state.food2`, the parser drops both on the
+    floor, and the pair publishes to HA and reads `unknown` forever.
+    """
+    if device_type.lower() not in DEVICE_TYPES_FEEDER_DUAL:
+        return
+    _extract_camel(body, list(FEEDER_DUAL_HOPPER_FIELDS), state)
 
 
 def _extract_feeder_next_gen(body: dict[str, Any], state: dict[str, Any],
@@ -486,6 +515,7 @@ def _parse_feeder(body: dict[str, Any], device_type: str = "") -> dict[str, Any]
     # alternative is worse: this helper is the ONLY one the MQTT path runs, so
     # a key left solely to the list above would reach a next-gen feeder over
     # HTTP and vanish on the transport it actually reports state on.
+    _extract_feeder_dual_hopper(body, state, device_type)
     _extract_feeder_next_gen(body, state, device_type)
     # The `err{}` fault block, on both transports. Parse it on one only and the
     # Error sensor reads whatever the last transport to arrive had to say --
@@ -625,6 +655,7 @@ def normalize_property_params(device_type: str, params: dict[str, Any]) -> dict[
             flat["petInTime"] = dev["pet_in_time"]
 
     _extract_fountain_w7h(params, flat, device_type)
+    _extract_feeder_dual_hopper(params, flat, device_type)
     _extract_feeder_next_gen(params, flat, device_type)
     if device_type.lower() in LITTER_CAMERA_MODELS:
         _extract_sensor_block(params, flat, LITTER_CAMERA_HALLS)

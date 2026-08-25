@@ -1,5 +1,77 @@
 # Changelog
 
+## 2.2.0 — 2026-08-25
+
+The Fresh Element Gemini (D4S) is now modelled as the dual-hopper feeder it
+actually is. Everything dual-hopper in the add-on was gated on the codename
+being exactly `d4sh`, so a Gemini was handed `{"amount": 10}` on a manual feed —
+a field a hopper pair does not read. The feed cycle ran and nothing came out.
+
+- **The D4S is a hopper pair.** It joins `d4sh` on the dual side, so a manual
+  feed sends `amount1`/`amount2` and the model gains per-hopper feed buttons,
+  per-hopper portion numbers and two hopper-level sensors. It loses `food_low`,
+  `food_in_bowl` and `food_bowl_pct` — the singular-hopper and bowl-scale
+  readings this device does not send. Its display name is now "Fresh Element
+  Gemini" rather than the codename echoed back.
+
+  This was inferred from pypetkitapi and RobertD502/home-assistant-petkit, and a
+  real D4S has since confirmed it on the wire: a `feed_over` carrying the dual
+  `real_amount1`/`real_amount2` spelling, and a state report carrying `food1`
+  and `food2` with no singular `food`.
+
+- **Hopper levels reach Home Assistant at all.** The extraction that produces
+  `state.food1`/`state.food2` was gated on the models whose firmware has been
+  disassembled, which the ESP32 D4S is correctly not one of — so the two new
+  hopper sensors would have published and read unknown forever. It is now gated
+  on the hopper COUNT, on both transports.
+
+- **Hopper levels are one threshold, not two per-family enums.** A D4S reads
+  `1` for a full hopper where a D4SH reads `2`, which looks like two
+  vocabularies and is not: the reference integration reads both through
+  `food < 1` meaning "needs food". So 0 is empty, anything at or above 1 has
+  food, and both models share one table. Only observed values are mapped — an
+  unseen number still renders raw rather than being bucketed into a label the
+  threshold merely predicts.
+
+- **Per-hopper dispensed totals**, for both dual-hopper models, beside the
+  combined total the feeder family already had. They use the reference
+  integration's suffixed names (`feedState.realAmountTotal1`/`2`) and ship
+  DEFAULT-DISABLED: the combined figure is what most people want, and the
+  split matters when one hopper jams and the other does not. Synthesised from
+  feed events like the combined total, since no feeder state report carries a
+  `feedState` block at all. A single-hopper feeder does not sprout an empty
+  second total.
+
+- **Times Eaten and Average Eating Time**, for both dual-hopper models. Parity
+  with the reference integration, which gives a D4S `TimesEaten` and
+  `AvgEatingTime` — and pointedly does NOT give it `AmountEaten`, since
+  weighing a meal needs a bowl scale a hopper pair has not got. Both are
+  derived from the eating episode's own `eat_start`/`eat_over` events: the
+  closing event's timestamps where the firmware repeats them, the remembered
+  opening where it does not, and no figure at all where nothing says.
+
+- **An `eat_over` is no longer mistaken for a feed.** Eating and dispensing are
+  both `KIND_FEEDING` with a completion role, so a finished meal used to set
+  Last Feed and count toward the dispensed totals for food that never left the
+  hopper. They are now split on `done_word`.
+
+- **`battery_installed` is no longer published for a D4S**, for a narrower
+  reason than it first appeared. The entity genuinely applies — the hardware
+  takes optional backup cells and PetKit's cloud publishes the flag for this
+  model — but nothing on the wire answers it. `batV` is the obvious candidate
+  and is disproven: a real D4S read `batV: 444` (4.44 V, about three fresh AA
+  cells) with the battery compartment confirmed EMPTY, so on this firmware it
+  is a rail reading rather than the cell stack. Deriving presence from it would
+  assert "battery installed" on a device with no battery in it. `ubat` cannot
+  separate "none fitted" from "fitted, not in use" either.
+
+- **`err_code: 8` has a second observation.** A D4S sent the exact issue-#2
+  signature — completed cycle, `real_amount1: 0`, `real_amount2: 0` — in answer
+  to the same unread `amount`. Two unrelated firmware families answering one
+  mistake identically makes it a property of the hopper-pair protocol rather
+  than of one image.
+
+
 ## 2.1.0 — 2026-08-12
 
 The YumShare Dual-Hopper (D4SH) camera feeder is now confirmed working, and most

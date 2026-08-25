@@ -299,10 +299,24 @@ def _cancel_feed(device: Device) -> Command:
     run something else entirely, and for them this stays what it always was:
     `feed_realtime` with a zero amount, which is localkit's cancel and the only
     evidence covering those models.
+
+    One model needs both halves and neither whole: the D4S is a hopper PAIR on
+    ESP32 firmware. The SERVICE it stays with is localkit's `feed_realtime`,
+    because `feed_realtime_cancel` was read out of an embedded-Linux `ctrl` this
+    device does not run and inventing a service name it has never been seen to
+    accept is a silent no-op. The KEYS it takes are the pair, because that is
+    the axis `DEVICE_TYPES_FEEDER_DUAL` settles — a dual feeder does not read
+    `amount`, so the zero every other ESP32 feeder cancels with would sail past
+    it. Each half comes from the source that actually covers it, rather than one
+    source being stretched over both.
     """
     if device.device_type.lower() not in DEVICE_TYPES_FEEDER_NEXT_GEN:
+        zeros: dict[str, Any] = (
+            {"amount1": 0, "amount2": 0}
+            if device.device_type.lower() in DEVICE_TYPES_FEEDER_DUAL
+            else {"amount": 0})
         return ("feed_realtime", _envelope("thing.service.feed_realtime", {
-            "amount": 0,
+            **zeros,
             "id": _feed_id(),
         }))
     last = (device.config.get("local") or {}).get("lastFeedId") or _feed_id()

@@ -22,7 +22,7 @@ predicates the rest of the code actually reads.
 #: The panel shows it because there is otherwise no way — for an owner or for
 #: us — to tell which build is running: a stale entity set looks exactly like an
 #: update that did not take.
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 
 DEVICE_TYPES_LITTER = {"t3", "t4", "t5", "t6", "t7"}
 DEVICE_TYPES_FEEDER = {"feeder", "feedermini", "d3", "d4", "d4s", "d4h", "d4sh"}
@@ -42,7 +42,27 @@ DEVICE_TYPES_FEEDER = {"feeder", "feedermini", "d3", "d4", "d4s", "d4h", "d4sh"}
 # YumShare Dual-Hopper. The neighbouring branch compares "D4H" and reads
 # `amount`, which is why the single-hopper path below must stay exactly as it
 # was -- see `ha/commands.py::_feed`.
-DEVICE_TYPES_FEEDER_DUAL = {"d4sh"}
+#
+# `d4s` -- the Fresh Element Gemini -- joined on 2026-08-25, and it is the one
+# member NOT covered by the disassembly above: it is an ESP32 model running
+# different firmware entirely, so the "D4SH" string compare says nothing about
+# it. Two independent sources put it here anyway:
+#
+#   * pypetkitapi splits the family the same way and puts it on the dual side --
+#     `DUAL_HOPPER_DEVICES = [D4S, D4SH]` against
+#     `SINGLE_HOPPER_DEVICES = [FEEDER, FEEDER_MINI, D3, D4, D4H]` -- and
+#     `command.py::_validate_manual_feed` REFUSES to send a D4S an `amount`,
+#     which is a client that talked to real hardware, not a naming guess;
+#   * an owner ran one against this add-on and reported the exact D4SH
+#     signature: a `feed_realtime` accepted, a feed logged, nothing dispensed.
+#     That is what `amount` reaching a hopper pair looks like from outside.
+#
+# The unit agrees too, which is the part that would have given a bad guess away.
+# pypetkitapi's per-model amount tables give D4 and D4H `[10, 20, 30, 40, 50]`
+# -- the scaled value `SINGLE_HOPPER_AMOUNT = 10` comes from -- and let the D4S
+# fall through to the default `[1..10]`, the PORTIONS a Dual-Hopper counts. So
+# `local.feedAmount1`/`2` and their 0..10 number entities carry over unchanged.
+DEVICE_TYPES_FEEDER_DUAL = {"d4s", "d4sh"}
 
 # Feeders running the embedded-Linux `ctrl` we have read (the D4SH 867 image
 # serves both D4SH and D4H). Everything taken from that disassembly is gated on
@@ -128,8 +148,11 @@ DEVICE_TYPES_AI = {"t5", "t6", "t7", "w7h"}
 #
 # `d4` was "Feeder D4" — the codename dressed up as a product, which is what
 # this table exists to avoid. Its owner named it in issue #3: a **Fresh Element
-# Solo**. `d3` and `d4s` are still the codename echoed back, for want of anybody
-# to ask; if you own one, the name on the box is the whole contribution needed.
+# Solo**. `d4s` was named the same way on 2026-08-25 -- an owner running one
+# reported its own `DEVICENAME` as `d_d4s_...` under a product titled Gemini, so
+# the codename and the box agree. `d3` is still the codename echoed back, for
+# want of anybody to ask; if you own one, the name on the box is the whole
+# contribution needed.
 #
 # `k2`/`k3` were "Air Purifier K2"/"Air Purifier K3" here, which is wrong and
 # actively misleading: PetKit also sells real air purifiers. These are the Pura
@@ -141,7 +164,7 @@ DEVICE_NAMES = {
     "feedermini": "Feeder Mini",
     "d3": "Feeder D3",
     "d4": "Fresh Element Solo",
-    "d4s": "Feeder D4s",
+    "d4s": "Fresh Element Gemini",
     "d4h": "YumShare Solo",
     "d4sh": "YumShare Dual-Hopper",
     "t3": "Pura X",
