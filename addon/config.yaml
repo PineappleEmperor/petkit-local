@@ -12,7 +12,6 @@ url: "https://github.com/alex-so-3/petkit-local"
 # so **a release is not usable until the matching tag has been published**. The
 # workflow refuses a `v*` git tag whose version disagrees with this file, which
 # is what keeps the two from drifting apart.
-image: "ghcr.io/alex-so-3/petkit-local"
 #
 # armv7 works only because the Dockerfile gives 32-bit ARM a glibc base — on the
 # musl one the other arches use, `cryptography` has no wheel and would have to
