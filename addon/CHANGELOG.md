@@ -1,5 +1,56 @@
 # Changelog
 
+## 2.3.0 — 2026-08-26
+
+Two silent bugs found by running a real D4S, and a pass over the feeder entity
+set to bring it in line with what the reference integrations actually give this
+model.
+
+- **Event content was being thrown away whole.** The device wraps `content` in
+  literal double quotes and escapes nothing inside it —
+  `content="{"real_amount1":0,...}"` — which is not a JSON string, so a strict
+  parse stopped at `Extra data` and every consumer got `{}`. The visible
+  symptom was a feeder whose Last Dispense updated on every manual feed while
+  Times and Total Dispensed never moved; `lastFeed` is set before the totals
+  accumulate. Related events, pet references and error codes were being starved
+  in the same silence.
+
+- **Value templates could not survive a missing intermediate.** `| default('')`
+  only guards the LAST name in a path, so `state.feedState.times` failed on the
+  absent `feedState` and Home Assistant logged
+  `'dict object' has no attribute 'feedState'` on every publish — 232 in one
+  morning from a feeder that simply had not dispensed yet. Every template is now
+  a `.get()` chain, which fixes this for all device types and all nested paths,
+  `settings.*` included.
+
+- **BREAKING: feeder entities are renamed around "dispense".** Dispense, Dispense
+  Hopper 1/2, Cancel Dispense, Dispensing, Dispense Tone, Dispense Event, Last
+  Dispense and the Dispense Schedule. The machine dispenses; the pet eats — so
+  Eating, Times Eaten, Average Eating Time and Minimum Eating Duration keep
+  their names. Entity KEYS are unchanged, so existing entities keep working and
+  keep their ids; the new names show on a fresh discovery.
+
+- **BREAKING: `amount_eaten` and `surplus_level` are no longer published for a
+  D4S.** Both are D3 entities in the reference integration — the D3 is the
+  feeder with a bowl SCALE, which is what weighing a meal and policing a surplus
+  both need and a hopper pair has not got. Nothing in this add-on ever produced
+  `feedState.eatAmountTotal` either.
+
+- **Device Status is computed rather than read.** It was pointed at
+  `state.workingState`, a LITTER BOX field no feeder sends, so it was blank on
+  every feeder ever connected. It now derives `normal` / `on_batteries` from the
+  `ubat` flag, and publishes nothing when the device does not send it.
+
+- **Times Eaten and Average Eating Time**, derived from the eating episode's own
+  `eat_start`/`eat_over` events, and **Minimum Eating Duration**
+  (`settings.shortest`) for dual-hopper models — the three the reference
+  integration gives a D4S.
+
+- **Per-hopper dispensed totals** beside the combined figure, default-disabled.
+
+- **Counters read 0 rather than unknown** before the first dispense.
+
+
 ## 2.2.0 — 2026-08-25
 
 The Fresh Element Gemini (D4S) is now modelled as the dual-hopper feeder it
