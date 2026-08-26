@@ -123,7 +123,7 @@ FEEDER_SWITCHES = [
     # `defaults.default_settings()`: `to_device_info` serves the seeded settings
     # straight back to the device, so inventing a value here would silently
     # change the owner's setting. It stays unknown until the device reports it.
-    EntityDef(component="switch", key="feed_sound", name="Feed Sound",
+    EntityDef(component="switch", key="feed_sound", name="Dispense Tone",
               value_path="settings.feedSound", icon="mdi:bell-ring"),
 ]
 # REMOVED (2026-07-29): `feed_tone` (settings.feedTone). Came from the reference

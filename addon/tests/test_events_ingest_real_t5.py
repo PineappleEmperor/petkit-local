@@ -330,6 +330,39 @@ def test_malformed_json_content_is_repaired_not_discarded():
     assert parsed["score_info"][0]["score"] == 48
 
 
+def test_a_quote_wrapped_content_block_is_unwrapped_not_discarded():
+    """A D4S wraps the whole object in literal double quotes and escapes
+    nothing inside it (real Gemini, firmware 1.198, 2026-08-26):
+
+        content="{"real_amount1":0,"real_amount2":2,...}"
+
+    That is not a JSON string, so a strict parse stops at `Extra data` and the
+    entire content was thrown away. `lastFeed` is set before the totals are
+    accumulated, so the visible symptom was a feeder whose Last Feed updated on
+    every manual feed while Times Dispensed and Total Dispensed never moved --
+    and every other consumer of `content` was being starved in the same
+    silence.
+    """
+    raw = ('"{"start_time":1787736067,"id":r_20260826_37258_37258-1,'
+           '"day":20260826,"manual":0,"time":33675,"real_amount1":0,'
+           '"real_amount2":2,"online_state":1,"completed_at":1787736076,'
+           '"result":0,"err_code":0}"')
+    parsed = ingest._as_dict(raw)
+    assert parsed["real_amount2"] == 2
+    assert parsed["err_code"] == 0
+    # The bare-token repair still has to run INSIDE the unwrapped text.
+    assert parsed["id"] == "r_20260826_37258_37258-1"
+
+
+def test_unwrapping_only_fires_on_the_malformed_shape():
+    """A correctly encoded JSON object never starts with a quote, so the
+    unwrap cannot corrupt a well-formed payload -- and a quoted string that is
+    not an object still decodes to nothing rather than to invented content."""
+    assert ingest._as_dict('{"a": 1}') == {"a": 1}
+    assert ingest._as_dict('"just a string"') == {}
+    assert ingest._as_dict('""') == {}
+
+
 def test_repair_never_invents_content_for_truly_broken_json():
     assert ingest._as_dict('{"a": ') == {}
     assert ingest._as_dict("not json at all") == {}

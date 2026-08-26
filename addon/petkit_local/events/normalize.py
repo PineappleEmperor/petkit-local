@@ -163,18 +163,33 @@ def _as_dict(value: object) -> dict:
     (including the bare-token repair above), not dict traversal."""
     if isinstance(value, dict):
         return value
-    if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-        except (json.JSONDecodeError, TypeError):
-            # Only attempt the repair once the strict parse has failed, and
-            # only trust it if the result parses cleanly — a bad guess must
-            # degrade to "no content", never to made-up content.
+    if not isinstance(value, str):
+        return {}
+
+    text = value.strip()
+    # The device also WRAPS the whole object in literal double quotes on some
+    # endpoints, without escaping the quotes inside it: a D4S `dev_event_report`
+    # sends `content="{"real_amount1":0,"real_amount2":2,...}"` (confirmed on a
+    # real Gemini, firmware 1.198, 2026-08-26). That is not a JSON string --
+    # nothing is escaped -- so a strict parse stops at `Extra data: column 4`
+    # and the whole content was thrown away. Unwrapping one surrounding pair is
+    # enough, and it is safe: a correctly encoded JSON object never starts with
+    # a quote, so this only ever fires on the malformed shape.
+    candidates = [text]
+    if len(text) >= 2 and text.startswith('"') and text.endswith('"'):
+        candidates.append(text[1:-1])
+
+    # Strict first, repaired second, for each candidate. The repair is only
+    # trusted if it then parses cleanly -- a bad guess must degrade to "no
+    # content", never to made-up content.
+    for candidate in candidates:
+        for attempt in (candidate, _repair_bare_values(candidate)):
             try:
-                parsed = json.loads(_repair_bare_values(value))
+                parsed = json.loads(attempt)
             except (json.JSONDecodeError, TypeError):
-                return {}
-        return parsed if isinstance(parsed, dict) else {}
+                continue
+            if isinstance(parsed, dict):
+                return parsed
     return {}
 
 

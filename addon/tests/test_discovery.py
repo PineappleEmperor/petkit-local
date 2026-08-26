@@ -148,15 +148,33 @@ def test_text_entity_respects_ha_max_length_limit():
         assert p["max"] <= 255
 
 
-def test_templates_default_missing_keys_to_avoid_ha_warnings():
-    """A key the device hasn't reported yet is Jinja Undefined; without a
-    default HA logs a template warning on every single publish."""
-    d = Device(device_type="t5", petkit_id=1, serial_number="SN")
-    for e, p in _build_all(d):
-        vt = p.get("value_template")
-        if not vt or not e.value_path:
-            continue
-        assert "default(" in vt, f"{e.component}/{e.key} has an unguarded template: {vt}"
+def test_templates_survive_a_document_that_has_reported_nothing():
+    """A key the device hasn't reported yet is Jinja Undefined; unguarded, HA
+    logs a template warning on every single publish.
+
+    Asserted by RENDERING rather than by grepping for `default(`. The filter
+    spelling only ever guarded the LAST name in a path: with
+    `value_json.state.feedState.times` the failure is the missing INTERMEDIATE,
+    which `| default('')` cannot catch and which produced
+    `'dict object' has no attribute 'feedState'` 232 times in one morning on a
+    feeder that had not dispensed yet. Rendering against an empty document is
+    the property actually wanted; the mechanism is free to change.
+    """
+    import jinja2
+    env = jinja2.Environment()
+    for device_type in ("t5", "d4s", "d4sh", "w7h"):
+        d = Device(device_type=device_type, petkit_id=1, serial_number="SN")
+        for e, payload in _build_all(d):
+            vt = payload.get("value_template")
+            if not vt or not e.value_path:
+                continue
+            for doc in ({}, {"state": {}}, {"settings": {}}):
+                try:
+                    env.from_string(vt).render(value_json=doc)
+                except jinja2.UndefinedError as exc:  # pragma: no cover
+                    raise AssertionError(
+                        f"{device_type} {e.component}/{e.key} raised on {doc}: "
+                        f"{exc}\n  {vt}") from exc
 
 
 def test_timestamp_sensors_render_none_not_empty_when_unset():

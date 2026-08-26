@@ -60,9 +60,9 @@ LITTER_T6_BUTTONS = [
 ]
 
 FEEDER_BUTTONS = [
-    EntityDef(component="button", key="feed", name="Feed", icon="mdi:food"),
+    EntityDef(component="button", key="feed", name="Dispense", icon="mdi:food"),
     EntityDef(component="button", key="reset_desiccant", name="Reset Desiccant", icon="mdi:restart"),
-    EntityDef(component="button", key="cancel_manual_feed", name="Cancel Manual Feed", icon="mdi:cancel"),
+    EntityDef(component="button", key="cancel_manual_feed", name="Cancel Dispense", icon="mdi:cancel"),
     EntityDef(component="button", key="food_replenished", name="Food Replenished", icon="mdi:food-apple"),
 ]
 
@@ -81,9 +81,9 @@ FEEDER_CAMERA_BUTTONS = [
 #: `{"amount1": 0, "amount2": 1}` (issue #2). How much each dispenses is the
 #: matching `number` in `numbers.py::FEEDER_DUAL_NUMBERS`.
 FEEDER_DUAL_BUTTONS = [
-    EntityDef(component="button", key="feed_hopper_1", name="Feed Hopper 1",
+    EntityDef(component="button", key="feed_hopper_1", name="Dispense Hopper 1",
               icon="mdi:food"),
-    EntityDef(component="button", key="feed_hopper_2", name="Feed Hopper 2",
+    EntityDef(component="button", key="feed_hopper_2", name="Dispense Hopper 2",
               icon="mdi:food"),
 ]
 

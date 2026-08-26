@@ -29,7 +29,7 @@ LITTER_EVENTS = [
 ]
 
 FEEDER_EVENTS = [
-    EntityDef(component="event", key="feeding_event", name="Feeding Event",
+    EntityDef(component="event", key="feeding_event", name="Dispense Event",
               icon="mdi:food",
               options=["feed_start", "feed_stop", "feed_over",
                        "eat_start", "eat_over"]),

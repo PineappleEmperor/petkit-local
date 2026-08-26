@@ -195,8 +195,21 @@ LITTER_PACKAGING_SENSORS = [
 ]
 
 FEEDER_SENSORS = [
+    # COMPUTED, not read. The reference integration publishes this from
+    # `state.pim` -- 0 offline, 1 normal, 2 on_batteries
+    # (RobertD502/home-assistant-petkit, `sensor.py::FeederStatus`) -- and no
+    # feeder that has reported here sends `pim` at all. It used to read
+    # `state.workingState`, which is a LITTER BOX field: no feeder sends that
+    # either, so the entity was blank on every feeder ever connected.
+    #
+    # `events/../state_parsers.py::_extract_feeder_power_state` derives it
+    # instead, from the `ubat` flag a real D4S does send. "Offline" is
+    # deliberately NOT among the values: a state report is itself proof the
+    # device is talking, and HA already has the device's availability.
     EntityDef(component="sensor", key="device_status", name="Device Status",
-              value_path="state.workingState", icon="mdi:state-machine"),
+              value_path="state.deviceStatus", icon="mdi:state-machine",
+              options=["Normal", "On batteries"],
+              option_values=["normal", "on_batteries"]),
     EntityDef(component="sensor", key="error", name="Error",
               value_path="state.errorMsg", icon="mdi:alert-circle"),
     EntityDef(component="sensor", key="desiccant_days", name="Desiccant Days Left",
@@ -210,24 +223,24 @@ FEEDER_SENSORS = [
     # long-term statistics read each rollover as the value genuinely falling.
     EntityDef(component="sensor", key="times_dispensed", name="Times Dispensed",
               value_path="state.feedState.times", icon="mdi:counter",
-              state_class="total_increasing"),
+              state_class="total_increasing", default_value=0),
     EntityDef(component="sensor", key="total_dispensed", name="Total Dispensed",
               value_path="state.feedState.realAmountTotal", unit="g", icon="mdi:scale",
-              state_class="total_increasing"),
+              state_class="total_increasing", default_value=0),
     EntityDef(component="sensor", key="food_in_bowl", name="Food in Bowl",
               value_path="state.weight", unit="g", icon="mdi:bowl"),
     EntityDef(component="sensor", key="food_bowl_pct", name="Food Bowl Level",
               value_path="state.bowl", unit="%", icon="mdi:bowl-mix"),
     EntityDef(component="sensor", key="amount_eaten", name="Amount Eaten",
               value_path="state.feedState.eatAmountTotal", unit="g", icon="mdi:food"),
-    EntityDef(component="sensor", key="last_feed", name="Last Feed",
+    EntityDef(component="sensor", key="last_feed", name="Last Dispense",
               value_path="state.lastFeed", device_class="timestamp", icon="mdi:food-fork-drink"),
 ]
 
 FEEDER_BINARY_SENSORS = [
     EntityDef(component="binary_sensor", key="food_low", name="Food Low",
               value_path="state.food", device_class="problem", icon="mdi:food-drumstick-off"),
-    EntityDef(component="binary_sensor", key="feeding", name="Feeding",
+    EntityDef(component="binary_sensor", key="feeding", name="Dispensing",
               value_path="state.feeding", device_class="running", icon="mdi:food"),
     EntityDef(component="binary_sensor", key="eating", name="Eating",
               value_path="state.eating", device_class="occupancy", icon="mdi:cat"),
@@ -327,11 +340,11 @@ FEEDER_DUAL_TOTAL_SENSORS = [
 FEEDER_EATING_SENSORS = [
     EntityDef(component="sensor", key="times_eaten", name="Times Eaten",
               value_path="state.feedState.eatCount",
-              state_class="total_increasing", icon="mdi:cat"),
+              state_class="total_increasing", icon="mdi:cat", default_value=0),
     EntityDef(component="sensor", key="avg_eating_time", name="Average Eating Time",
               value_path="state.feedState.eatAvg", unit="s",
               device_class="duration", state_class="measurement",
-              icon="mdi:timer-outline"),
+              icon="mdi:timer-outline", default_value=0),
 ]
 
 #: The single hopper-level reading for a one-hopper next-gen feeder (D4H). It is

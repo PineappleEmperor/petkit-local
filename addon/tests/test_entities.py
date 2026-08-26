@@ -71,11 +71,11 @@ EXPECTED_ENTITY_COUNTS = {
     # (+6), and loses `food_low`, `food_in_bowl` and `food_bowl_pct` (-3) —
     # the singular-hopper and bowl-scale readings a hopper pair does not send.
     "t3": 46, "t4": 46, "t5": 82, "t6": 89, "t7": 82,
-    "feeder": 25, "feedermini": 25, "d3": 25, "d4": 25, "d4s": 31,
+    "feeder": 25, "feedermini": 25, "d3": 25, "d4": 25, "d4s": 30,
     # 2026-08-12: replaced `enable_feed_video` button with individual switches
     # (feed_picture, eat_video, voice_prompt, voice_disturb_mode, disturb_mode)
     # and added selected_sound number + play_sound button. Net +6.
-    "d4h": 57, "d4sh": 65,
+    "d4h": 57, "d4sh": 66,
     "w4": 24, "w5": 24, "ctw2": 24, "ctw3": 24, "w7h": 84,
     "k2": 12, "k3": 12,
 }

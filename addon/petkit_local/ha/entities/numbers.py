@@ -64,6 +64,17 @@ FEEDER_DUAL_NUMBERS = [
               min_value=0, max_value=10, step=1),
 ]
 
+#: The shortest visit the feeder will count as a meal, in seconds. DUAL ONLY
+#: in the reference integration, which gives `MinEatingDuration` to a D4S and
+#: to nothing else and reads `settings.shortest`
+#: (RobertD502/home-assistant-petkit, `number.py`).
+FEEDER_DUAL_EATING_NUMBERS = [
+    EntityDef(component="number", key="min_eating_duration",
+              name="Minimum Eating Duration", value_path="settings.shortest",
+              unit="s", icon="mdi:timer-cog-outline",
+              min_value=0, max_value=60, step=1, entity_category="config"),
+]
+
 FEEDER_CAMERA_NUMBERS = [
     EntityDef(component="number", key="volume", name="Volume",
               value_path="settings.volume", icon="mdi:volume-high",

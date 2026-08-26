@@ -92,7 +92,9 @@ def test_the_value_template_renders_a_clock_and_blanks_an_unknown():
     tmpl = build_discovery_payload(
         idx["flush_time"], 1, "w7h", "Fountain", "SN",
         "petkit-local/1/state")["value_template"]
-    assert "value_json.settings.flushTime" in tmpl
+    # The path is reached by a `.get()` chain now, so that a device which has
+    # reported no `settings` block at all renders blank instead of raising.
+    assert "'settings'" in tmpl and "'flushTime'" in tmpl
     assert "| default(-1) | int(-1)" in tmpl
     assert "'%02d:%02d:%02d' | format" in tmpl
 

@@ -97,6 +97,17 @@ class EntityDef:
     #: HA honours this on FIRST discovery only: a user who enables the entity
     #: keeps it enabled, which is the point.
     enabled_by_default: bool = True
+    #: Value to publish when the key is absent, INSTEAD of the empty string
+    #: that renders as `unknown`. Only for figures where "nothing yet" has a
+    #: real value: a counter that has not counted is genuinely 0, and starting
+    #: a `total_increasing` sensor there is what makes its statistics work
+    #: from the first feed rather than the second.
+    #:
+    #: NOT a general cure for a blank entity. An AVERAGE over no samples is
+    #: not 0, a temperature nobody measured is not 0, and a device state the
+    #: firmware never sent is not 0 -- the same trap `workState` is documented
+    #: for. Leave this None unless absence really does mean the value.
+    default_value: object | None = None
     payload_off: str = "OFF"
 
     @property
@@ -288,30 +299,41 @@ def _value_template(entity: EntityDef) -> str:
         return "{{ value_json }}"
 
     parts = entity.value_path.split(".")
-    accessor = "value_json"
-    for p in parts:
-        accessor += f".{p}" if p.isidentifier() else f"['{p}']"
 
-    # `| default(...)` matters: a key the device hasn't reported yet is Jinja
-    # Undefined, and HA logs a "Template variable warning: 'dict object' has
-    # no attribute ..." for every publish. Defaulting keeps the rendered value
-    # identical while silencing the noise.
+    # A `.get()` CHAIN, not a dotted path with `| default(...)` on the end.
+    # The filter only rescues the LAST name: `value_json.state.feedState.times`
+    # fails on the missing INTERMEDIATE when the device has not reported a
+    # `feedState` at all, and HA logs
+    #   Template variable error: 'dict object' has no attribute 'feedState'
+    # on every publish -- 232 of them in one morning on a feeder that simply
+    # had not dispensed yet. Nesting the defaults means each level degrades to
+    # an empty dict and only the final `.get` decides what a missing value
+    # renders as, which is also why the per-component defaults below moved
+    # into that call.
+    def chain(final: str) -> str:
+        expr = "value_json"
+        for part in parts[:-1]:
+            expr += ".get('" + part + "', {})"
+        return expr + ".get('" + parts[-1] + "', " + final + ")"
+
     if entity.component in ("binary_sensor", "switch"):
-        return "{{ 'ON' if " + accessor + " | default(false) else 'OFF' }}"
+        return "{{ 'ON' if " + chain("false") + " else 'OFF' }}"
     if entity.component == "select":
-        return _select_value_template(entity, accessor)
+        return _select_value_template(entity, chain("none"))
     if entity.component == "time":
-        return _time_value_template(accessor)
+        return _time_value_template(chain("none"))
     if entity.component == "sensor" and entity.options:
-        return _enum_sensor_value_template(entity, accessor)
+        return _enum_sensor_value_template(entity, chain("none"))
     if entity.device_class == "timestamp":
         # A timestamp sensor is the one case where an empty payload is an
         # error: HA runs it through `parse_datetime` and logs "Invalid state
         # message ''" on every publish until the device reports one. HA maps
         # the literal string "None" (PAYLOAD_NONE) to an unknown state, which
         # is what we actually mean before the first event.
-        return "{{ " + accessor + " | default('None') or 'None' }}"
-    return "{{ " + accessor + " | default('') }}"
+        return "{{ " + chain("'None'") + " or 'None' }}"
+    if entity.default_value is not None:
+        return "{{ " + chain(_jinja_literal(entity.default_value)) + " }}"
+    return "{{ " + chain("''") + " }}"
 
 
 def _time_value_template(accessor: str) -> str:

@@ -18,7 +18,7 @@ LITTER_SCHEDULE_TEXT = [
 ]
 
 FEEDER_SCHEDULE_TEXT = [
-    EntityDef(component="text", key="feeding_schedule", name="Feeding Schedule (JSON)",
+    EntityDef(component="text", key="feeding_schedule", name="Dispense Schedule (JSON)",
               value_path="feed_schedule", icon="mdi:calendar-clock",
               entity_category="config"),
 ]

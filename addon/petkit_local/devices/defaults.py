@@ -135,6 +135,15 @@ def default_settings(device: Device) -> dict[str, Any]:
             "surplusControl": 0, "surplusStandard": 2,
             "numLimit": 5,
         }
+        if device.device_type.lower() in DEVICE_TYPES_FEEDER_DUAL:
+            # The shortest visit counted as a meal, in seconds. Seeded for the
+            # hopper pair alone because the reference integration gives
+            # `MinEatingDuration` to a D4S and to no other feeder, reading
+            # `settings.shortest` (RobertD502/home-assistant-petkit). The seed
+            # is what gives the number entity a value to render before the
+            # owner touches it -- and unlike `sandType` above, 0 is a coherent
+            # member of this field's range, not a value outside its vocabulary.
+            base["shortest"] = 0
         if device.is_camera:
             base.update({
                 "camera": 1, "microphone": 1, "night": 1,

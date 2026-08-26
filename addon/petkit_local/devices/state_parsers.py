@@ -140,6 +140,30 @@ def _extract_fountain_w7h(body: dict[str, Any], state: dict[str, Any],
             state["sw"] = device_block["sw"]
 
 
+def _extract_feeder_power_state(body: dict[str, Any], state: dict[str, Any]) -> None:
+    """Derive the feeder's power source, the value `device_status` publishes.
+
+    The reference integration reads `state.pim` for this -- 0 offline, 1
+    normal, 2 on_batteries (RobertD502/home-assistant-petkit,
+    `sensor.py::FeederStatus`). No feeder that has ever reported here sends
+    `pim`, so that field cannot be echoed; what a real D4S sends is `ubat`,
+    and `ubat: 0` sat beside a mains-powered device throughout the 2026-08-25
+    capture.
+
+    Only the two states a report can actually evidence. "Offline" is not among
+    them on purpose: a state report is itself proof the device is talking, so
+    deriving offline from a payload that arrived would be a contradiction --
+    HA already tracks availability, and the panel has `online`.
+
+    Gated on `ubat` being PRESENT. Absent, nothing is written: defaulting to
+    "normal" would state a power source on firmware that never named one, the
+    same trap `workState` is documented for.
+    """
+    if "ubat" not in body:
+        return
+    state["deviceStatus"] = "on_batteries" if to_float(body.get("ubat"), 0) else "normal"
+
+
 def _extract_feeder_dual_hopper(body: dict[str, Any], state: dict[str, Any],
                                 device_type: str = "") -> None:
     """Flatten a hopper PAIR's two contents readings into `state`.
@@ -515,6 +539,7 @@ def _parse_feeder(body: dict[str, Any], device_type: str = "") -> dict[str, Any]
     # alternative is worse: this helper is the ONLY one the MQTT path runs, so
     # a key left solely to the list above would reach a next-gen feeder over
     # HTTP and vanish on the transport it actually reports state on.
+    _extract_feeder_power_state(body, state)
     _extract_feeder_dual_hopper(body, state, device_type)
     _extract_feeder_next_gen(body, state, device_type)
     # The `err{}` fault block, on both transports. Parse it on one only and the
@@ -655,6 +680,7 @@ def normalize_property_params(device_type: str, params: dict[str, Any]) -> dict[
             flat["petInTime"] = dev["pet_in_time"]
 
     _extract_fountain_w7h(params, flat, device_type)
+    _extract_feeder_power_state(params, flat)
     _extract_feeder_dual_hopper(params, flat, device_type)
     _extract_feeder_next_gen(params, flat, device_type)
     if device_type.lower() in LITTER_CAMERA_MODELS:

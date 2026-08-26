@@ -33,7 +33,8 @@ from petkit_local.ha.entities.events import (
     FEEDER_EVENTS, FOUNTAIN_W7H_EVENTS, LITTER_EVENTS,
 )
 from petkit_local.ha.entities.numbers import (
-    FEEDER_CAMERA_NUMBERS, FEEDER_DUAL_NUMBERS, FEEDER_NUMBERS,
+    FEEDER_CAMERA_NUMBERS, FEEDER_DUAL_EATING_NUMBERS, FEEDER_DUAL_NUMBERS,
+    FEEDER_NUMBERS,
     FOUNTAIN_NUMBERS, FOUNTAIN_W7H_NUMBERS,
     LITTER_CAMERA_NUMBERS, LITTER_NUMBERS,
 )
@@ -261,13 +262,15 @@ CATEGORY_SPECS: dict[str, CategorySpec] = {
             # table covers them and the difference is not a per-family enum.
             ("d4s", (*FEEDER_DUAL_HOPPER_SENSORS, *FEEDER_DUAL_TOTAL_SENSORS,
                      *FEEDER_EATING_SENSORS,
-                     *FEEDER_DUAL_BUTTONS, *FEEDER_DUAL_NUMBERS)),
+                     *FEEDER_DUAL_BUTTONS, *FEEDER_DUAL_NUMBERS,
+                     *FEEDER_DUAL_EATING_NUMBERS)),
             ("d4h", (*FEEDER_NEXT_GEN_SENSORS, *FEEDER_SINGLE_HOPPER_SENSORS,
                      *FEEDER_NEXT_GEN_HALL_SENSORS)),
             ("d4sh", (*FEEDER_NEXT_GEN_SENSORS, *FEEDER_DUAL_HOPPER_SENSORS,
                       *FEEDER_DUAL_TOTAL_SENSORS, *FEEDER_EATING_SENSORS,
                       *FEEDER_NEXT_GEN_HALL_SENSORS,
-                      *FEEDER_DUAL_BUTTONS, *FEEDER_DUAL_NUMBERS)),
+                      *FEEDER_DUAL_BUTTONS, *FEEDER_DUAL_NUMBERS,
+                      *FEEDER_DUAL_EATING_NUMBERS)),
         ),
         # Four controls a D4SH cannot fill, and the reason is the same for each:
         # the field behind it is not in either of the two real reports in issue
@@ -313,8 +316,19 @@ CATEGORY_SPECS: dict[str, CategorySpec] = {
             # `food_bowl_pct` (`state.bowl`) are likewise absent from it, and
             # are given to no feeder in the cloud model except the D3, whose
             # bowl is a scale.
+            # `amount_eaten` and `surplus_level` join the list on 2026-08-26,
+            # both on the same evidence: the reference integration gives
+            # `AmountEaten` and `SurplusControl` to the D3 ALONE, never to a
+            # D4S. The D3 is the feeder with a bowl SCALE, which is what
+            # weighing a meal and policing a surplus both need and a hopper
+            # pair has not got. Our own capture agrees on the first -- nothing
+            # this device sends, and nothing this add-on computes, ever
+            # produces `feedState.eatAmountTotal`. Eating is reported here as
+            # `times_eaten` and `avg_eating_time` instead, which is what that
+            # integration gives a D4S.
             ("d4s", frozenset({
                 "food_low", "food_in_bowl", "food_bowl_pct", "battery_installed",
+                "amount_eaten", "surplus_level",
             })),
             ("d4sh", frozenset({
                 "food_low", "food_in_bowl", "food_bowl_pct", "battery_installed",
