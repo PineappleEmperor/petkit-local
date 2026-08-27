@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.3.2 — 2026-08-27
+
+- **Clicking a day in a feeder's schedule did nothing.** The handler resolved
+  the field as `rpt` or `repeats`, and a feeder group stores its days in `re` —
+  the renderer passes `group.re` in, but the write went to a key the schedule
+  does not have. The checkbox moved, `re` kept every day, and the change was
+  silently discarded. It now picks whichever of `rpt`/`re`/`repeats` the entry
+  actually has.
+
+- **Eating is now measured on models with no camera.** A real D4S sends event
+  type `5` and then type `6` about forty seconds later carrying its own
+  `start_time`. Type `6` was in no table, so it logged "Unknown event_type '6'"
+  and the eating episode had no close — Times Eaten and Average Eating Time
+  could never fill. It is the pet at the bowl, detected from the proximity/IR
+  pair rather than from an image.
+
+- **A feed event blanked the WiFi signal.** `_extract_wifi_rssi` fell back to
+  `state.get("rssi")`, but `state` is the dict being built for THAT payload,
+  not the device's accumulated state — so a body with no `wifi` block stored
+  `rssi: None` over a good reading. Harmless while those payloads were being
+  discarded; 2.3.1 fixed the parse, which turned it into "every dispense clears
+  the signal". It now writes nothing when there is no reading.
+
+- **The Error sensor reads "No error" instead of blank.** An empty `errorMsg`
+  is the device saying it is healthy, and a blank sensor reads as broken. Real
+  faults still render verbatim.
+
+
 ## 2.3.1 — 2026-08-27
 
 - **Every entity sat `unavailable` after an add-on restart.** Availability was
