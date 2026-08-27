@@ -111,6 +111,9 @@ class HAPublisher:
         self._media_root = config.get("media_root", "/media/petkit")
         self._client = None
         self._connected = False
+        #: Last availability payload published per device, so a caller may fire
+        #: on every contact without turning a 10s heartbeat into a 10s publish.
+        self._last_availability: dict[int, str] = {}
         self._commands = CommandRouter(self, registry, ble_registry)
 
     @property
@@ -199,7 +202,7 @@ class HAPublisher:
         """
         for device in self._registry.all():
             await self.publish_discovery(device)
-            await self.publish_availability(device)
+            await self.publish_availability(device, force=True)
         if self._ble_registry:
             for ble_dev in self._ble_registry.all():
                 await self.publish_ble_discovery(ble_dev)
@@ -314,14 +317,34 @@ class HAPublisher:
         state_data = self._build_state(device)
         await self._emit(state_topic, json.dumps(state_data), retain=True)
 
-    async def publish_availability(self, device: Device) -> None:
-        """Publish `online`/`offline` for every entity of the device."""
+    async def publish_availability(self, device: Device, force: bool = False) -> None:
+        """Publish `online`/`offline` for every entity of the device.
+
+        Callers may fire this on EVERY contact rather than only on a
+        transition, so the payload is deduplicated here instead: a heartbeat
+        every ten seconds must not become a retained publish every ten
+        seconds. `force` bypasses the cache for the reconnect replay, where HA
+        has discarded its MQTT registry and needs the value again even though
+        nothing changed on our side.
+
+        Deduplicating HERE and not at the call site is deliberate. The
+        transition-gated version of this lived in the HTTP middleware and had
+        a hole: the heartbeat handler sets `device.online = True` before the
+        middleware runs, so `if not device.online` was already False and the
+        callback never fired. A device that restarted the add-on then sat at
+        `unavailable` in HA forever -- discovery published, availability stuck
+        on the retained `offline` from startup, and nothing to correct it
+        until the device went stale and came back.
+        """
         if not self._client or not self._connected:
             return
 
-        topic = f"petkit-local/{device.petkit_id}/availability"
         payload = "online" if device.online else "offline"
+        if not force and self._last_availability.get(device.petkit_id) == payload:
+            return
+        topic = f"petkit-local/{device.petkit_id}/availability"
         await self._emit(topic, payload, retain=True)
+        self._last_availability[device.petkit_id] = payload
 
     async def publish_event(self, device: Device, entity_suffix: str, event_type: str,
                             attrs: dict | None = None) -> None:

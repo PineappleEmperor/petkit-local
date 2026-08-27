@@ -127,9 +127,17 @@ async def logging_middleware(request: web.Request, handler: Handler) -> web.Stre
             wire_type = (request.get("x_device") or {}).get("type") or ""
             if wire_type and device.wire_type != wire_type:
                 device.wire_type = wire_type
-            if not device.online:
-                device.online = True
-                cb = request.app.get("on_device_seen")
-                if cb is not None:
-                    await cb(device)
+            # Fired on EVERY contact, not just an offline->online transition.
+            # The gate used to be `if not device.online`, which never fired on
+            # a heartbeat: the heartbeat handler sets `online = True` and this
+            # middleware runs after it, so the flag was already True and the
+            # callback was skipped. Availability then stayed on whatever was
+            # retained at startup -- `offline`, since `online` is deliberately
+            # not persisted -- and every entity sat unavailable in HA until the
+            # device went stale and came back. The publisher deduplicates the
+            # payload, so calling it per request costs a dict lookup.
+            device.online = True
+            cb = request.app.get("on_device_seen")
+            if cb is not None:
+                await cb(device)
     return resp
