@@ -66,6 +66,25 @@ def device_is_stale(device: Device, now: float, timeout: int) -> bool:
     return (now - last_seen) > timeout
 
 
+def _schedule_for_text(schedule: object) -> object:
+    """A feed schedule slim enough for HA's 255-character text entity.
+
+    Only `itemJsonString` is dropped, and only from the published copy: it
+    restates `it` verbatim and is regenerated server-side, so no information
+    is lost. The device's stored schedule is untouched.
+    """
+    if not isinstance(schedule, dict):
+        return schedule
+    groups = schedule.get("schedule")
+    if not isinstance(groups, list):
+        return schedule
+    return {**schedule, "schedule": [
+        {k: v for k, v in g.items() if k != "itemJsonString"}
+        if isinstance(g, dict) else g
+        for g in groups
+    ]}
+
+
 class HAPublisher:
     """Publishes devices to Home Assistant over MQTT and applies HA's commands.
 
@@ -572,7 +591,14 @@ class HAPublisher:
             "state": state,
             "settings": settings,
             "schedule": json.dumps(device.config.get("schedule", [])),
-            "feed_schedule": json.dumps(device.config.get("feed_schedule", {})),
+            # WITHOUT `itemJsonString`. HA's MQTT text platform hard-caps at
+            # 255 characters and silently drops anything longer, and a real
+            # two-meal schedule serialises to 276 -- so the entity could never
+            # hold one and simply read blank. That field is a duplicate of
+            # `it` which PetKit rebuilds server-side, so dropping it costs
+            # nothing and brings the same schedule down to 143.
+            "feed_schedule": json.dumps(_schedule_for_text(
+                device.config.get("feed_schedule", {}))),
             # Which transport the device is actually on. Not a device field --
             # it is our own view of the link, and the one thing that explains
             # why a button press can take two minutes: an HTTP device only
