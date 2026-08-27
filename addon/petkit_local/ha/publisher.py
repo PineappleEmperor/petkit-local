@@ -573,6 +573,12 @@ class HAPublisher:
             "settings": settings,
             "schedule": json.dumps(device.config.get("schedule", [])),
             "feed_schedule": json.dumps(device.config.get("feed_schedule", {})),
+            # Which transport the device is actually on. Not a device field --
+            # it is our own view of the link, and the one thing that explains
+            # why a button press can take two minutes: an HTTP device only
+            # collects commands when it next polls, where an MQTT one is
+            # pushed to. Worth surfacing rather than leaving in the panel.
+            "connection": "MQTT" if device.mqtt_connected else "HTTP",
             "capabilities": {ct: (ct in enabled) for ct in Device.CAPABILITY_TYPES},
             "local": {**LOCAL_DEFAULTS, **(device.config.get("local") or {})},
         }

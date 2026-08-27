@@ -70,14 +70,14 @@ EXPECTED_ENTITY_COUNTS = {
     # feed buttons, their two portion numbers and the two hopper-level sensors
     # (+6), and loses `food_low`, `food_in_bowl` and `food_bowl_pct` (-3) —
     # the singular-hopper and bowl-scale readings a hopper pair does not send.
-    "t3": 46, "t4": 46, "t5": 82, "t6": 89, "t7": 82,
-    "feeder": 25, "feedermini": 25, "d3": 25, "d4": 25, "d4s": 30,
+    "t3": 47, "t4": 47, "t5": 83, "t6": 90, "t7": 83,
+    "feeder": 26, "feedermini": 26, "d3": 26, "d4": 26, "d4s": 37,
     # 2026-08-12: replaced `enable_feed_video` button with individual switches
     # (feed_picture, eat_video, voice_prompt, voice_disturb_mode, disturb_mode)
     # and added selected_sound number + play_sound button. Net +6.
-    "d4h": 57, "d4sh": 66,
-    "w4": 24, "w5": 24, "ctw2": 24, "ctw3": 24, "w7h": 84,
-    "k2": 12, "k3": 12,
+    "d4h": 58, "d4sh": 73,
+    "w4": 25, "w5": 25, "ctw2": 25, "ctw3": 25, "w7h": 85,
+    "k2": 13, "k3": 13,
 }
 
 # (non-camera model, camera model) of the same category. The camera bundle must

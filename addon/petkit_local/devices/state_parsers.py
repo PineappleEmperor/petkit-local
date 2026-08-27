@@ -564,6 +564,14 @@ def _parse_feeder(body: dict[str, Any], device_type: str = "") -> dict[str, Any]
         _extract_camel(feed_state, [
             "times", "realAmountTotal", "eatAmountTotal", "addAmountTotal",
             "planAmountTotal", "planRealAmountTotal", "eatAvg", "eatCount",
+            # The per-hopper spellings a DUAL feeder uses for every one of the
+            # totals above. Extracted so a device that does send a `feedState`
+            # block is read correctly, and so the entities reading them have a
+            # device-side source as well as the synthesised one.
+            "realAmountTotal1", "realAmountTotal2",
+            "addAmountTotal1", "addAmountTotal2",
+            "planAmountTotal1", "planAmountTotal2",
+            "planRealAmountTotal1", "planRealAmountTotal2",
             "addAmountTotal1", "addAmountTotal2",
             "planAmountTotal1", "planAmountTotal2",
             "realAmountTotal1", "realAmountTotal2",

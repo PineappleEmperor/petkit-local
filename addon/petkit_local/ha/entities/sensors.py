@@ -202,6 +202,17 @@ LITTER_PACKAGING_SENSORS = [
               value_path="state.packageCount", icon="mdi:counter"),
 ]
 
+#: Which transport the device is on, for every model. Diagnostic because it is
+#: not about the pet: it is about us, and it is the answer to "why did that
+#: button take two minutes" -- an HTTP device only collects a command when it
+#: next polls, where an MQTT one is pushed to.
+CONNECTION_SENSORS = [
+    EntityDef(component="sensor", key="connection", name="Connection",
+              value_path="connection", icon="mdi:transit-connection-variant",
+              entity_category="diagnostic",
+              options=["MQTT", "HTTP"], option_values=["MQTT", "HTTP"]),
+]
+
 FEEDER_SENSORS = [
     # COMPUTED, not read. The reference integration publishes this from
     # `state.pim` -- 0 offline, 1 normal, 2 on_batteries
@@ -361,6 +372,58 @@ FEEDER_EATING_SENSORS = [
               value_path="state.feedState.eatAvg", unit="s",
               device_class="duration", state_class="measurement",
               icon="mdi:timer-outline", default_value=0),
+]
+
+#: The rest of the reference integration's per-hopper feed accounting: what was
+#: dispensed BY HAND, what the schedule INTENDED, and what the schedule actually
+#: put out. DUAL-HOPPER ONLY.
+#:
+#: Names and fields are RobertD502/home-assistant-petkit's, which gives a D4S
+#: `ManualDispensedHopper1/2` (`addAmountTotal1/2`), `TotalPlannedHopper1/2`
+#: (`planAmountTotal1/2`) and `PlannedDispensedHopper1/2`
+#: (`planRealAmountTotal1/2`). The whole `feedState` vocabulary is suffixed per
+#: hopper on this model; the unsuffixed spellings belong to single-hopper
+#: feeders.
+#:
+#: All six are synthesised, because no feeder state report carries a
+#: `feedState` block at all. Manual and scheduled are told apart by the feed
+#: id: `ha/commands.py::_feed` stores the id it minted in
+#: `config.local.lastFeedId`, and the device echoes that same id back in
+#: `feed_start`/`feed_over`. An echo that matches is a feed WE asked for;
+#: anything else is the device running its own schedule. `content.manual` looks
+#: like it should answer this and does not -- a real D4S reported `manual: 0`
+#: for a button press.
+#:
+#: `planAmountTotal1/2` is the odd one out: it is an INTENTION, not an outcome,
+#: so it cannot come from an event. It is summed from the stored schedule for
+#: the current weekday (`events/normalize.py::_planned_totals_today`).
+FEEDER_DUAL_PLANNED_SENSORS = [
+    EntityDef(component="sensor", key="hopper1_manual", name="Hopper 1 Dispensed Manually",
+              value_path="state.feedState.addAmountTotal1", unit="g",
+              state_class="total_increasing", icon="mdi:hand-pointing-up",
+              default_value=0),
+    EntityDef(component="sensor", key="hopper2_manual", name="Hopper 2 Dispensed Manually",
+              value_path="state.feedState.addAmountTotal2", unit="g",
+              state_class="total_increasing", icon="mdi:hand-pointing-up",
+              default_value=0),
+    EntityDef(component="sensor", key="hopper1_planned", name="Hopper 1 Planned",
+              value_path="state.feedState.planAmountTotal1", unit="g",
+              state_class="measurement", icon="mdi:calendar-check",
+              default_value=0),
+    EntityDef(component="sensor", key="hopper2_planned", name="Hopper 2 Planned",
+              value_path="state.feedState.planAmountTotal2", unit="g",
+              state_class="measurement", icon="mdi:calendar-check",
+              default_value=0),
+    EntityDef(component="sensor", key="hopper1_planned_dispensed",
+              name="Hopper 1 Dispensed On Schedule",
+              value_path="state.feedState.planRealAmountTotal1", unit="g",
+              state_class="total_increasing", icon="mdi:calendar-clock",
+              default_value=0),
+    EntityDef(component="sensor", key="hopper2_planned_dispensed",
+              name="Hopper 2 Dispensed On Schedule",
+              value_path="state.feedState.planRealAmountTotal2", unit="g",
+              state_class="total_increasing", icon="mdi:calendar-clock",
+              default_value=0),
 ]
 
 #: The single hopper-level reading for a one-hopper next-gen feeder (D4H). It is

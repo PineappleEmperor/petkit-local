@@ -42,8 +42,9 @@ from petkit_local.ha.entities.selects import (
     FEEDER_SELECTS, FOUNTAIN_SELECTS, FOUNTAIN_W7H_SELECTS, LITTER_SELECTS,
 )
 from petkit_local.ha.entities.sensors import (
-    FEEDER_BINARY_SENSORS, FEEDER_DUAL_HOPPER_SENSORS, FEEDER_DUAL_TOTAL_SENSORS,
-    FEEDER_EATING_SENSORS, FEEDER_NEXT_GEN_HALL_SENSORS,
+    CONNECTION_SENSORS, FEEDER_BINARY_SENSORS, FEEDER_DUAL_HOPPER_SENSORS, FEEDER_DUAL_TOTAL_SENSORS,
+    FEEDER_DUAL_PLANNED_SENSORS, FEEDER_EATING_SENSORS,
+    FEEDER_NEXT_GEN_HALL_SENSORS,
     FEEDER_NEXT_GEN_SENSORS, FEEDER_SINGLE_HOPPER_SENSORS, FEEDER_SENSORS,
     FOUNTAIN_BINARY_SENSORS, FOUNTAIN_SENSORS,
     FOUNTAIN_W7H_BINARY_SENSORS, FOUNTAIN_W7H_HALL_SENSORS, FOUNTAIN_W7H_SENSORS,
@@ -261,13 +262,14 @@ CATEGORY_SPECS: dict[str, CategorySpec] = {
             # both through one threshold (`food < 1` is "needs food"), so one
             # table covers them and the difference is not a per-family enum.
             ("d4s", (*FEEDER_DUAL_HOPPER_SENSORS, *FEEDER_DUAL_TOTAL_SENSORS,
-                     *FEEDER_EATING_SENSORS,
+                     *FEEDER_EATING_SENSORS, *FEEDER_DUAL_PLANNED_SENSORS,
                      *FEEDER_DUAL_BUTTONS, *FEEDER_DUAL_NUMBERS,
                      *FEEDER_DUAL_EATING_NUMBERS)),
             ("d4h", (*FEEDER_NEXT_GEN_SENSORS, *FEEDER_SINGLE_HOPPER_SENSORS,
                      *FEEDER_NEXT_GEN_HALL_SENSORS)),
             ("d4sh", (*FEEDER_NEXT_GEN_SENSORS, *FEEDER_DUAL_HOPPER_SENSORS,
                       *FEEDER_DUAL_TOTAL_SENSORS, *FEEDER_EATING_SENSORS,
+                      *FEEDER_DUAL_PLANNED_SENSORS,
                       *FEEDER_NEXT_GEN_HALL_SENSORS,
                       *FEEDER_DUAL_BUTTONS, *FEEDER_DUAL_NUMBERS,
                       *FEEDER_DUAL_EATING_NUMBERS)),
@@ -472,8 +474,13 @@ def get_entities_for_device(device: Device) -> list[EntityDef]:
     spec = spec_for_device(device)
     if spec is None:
         return []
-    return spec.entities_for(has_camera=device.is_camera,
-                             device_type=device.device_type)
+    # Appended for EVERY category rather than repeated in each spec: the
+    # transport is a property of the link, not of the product, and every
+    # device has one. Last in the tuple, because appending is the only change
+    # to discovery order that cannot move an existing entity.
+    return [*spec.entities_for(has_camera=device.is_camera,
+                               device_type=device.device_type),
+            *CONNECTION_SENSORS]
 
 
 def get_setting_fields(device: Device) -> set[str]:

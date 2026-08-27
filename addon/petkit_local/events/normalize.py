@@ -40,7 +40,7 @@ from petkit_local.devices.state_parsers import (apply_consumable_state,
                                                 parse_state_report)
 from petkit_local.events import codes, decode
 from petkit_local.utils.coerce import to_float, to_int
-from petkit_local.utils.dicts import first_of
+from petkit_local.utils.dicts import dig, first_of
 
 if TYPE_CHECKING:
     from petkit_local.devices.base import Device
@@ -508,6 +508,54 @@ def apply_derived_state(device: Device, event_type: str, content: dict) -> None:
         _remember_eat_start(device, content)
 
 
+def _was_manual(device: Device, content: dict) -> bool:
+    """Whether THIS feed is one we asked for, rather than the device's schedule.
+
+    `ha/commands.py::_feed` mints a feed id and stores it in
+    `config.local.lastFeedId`; the device echoes that same id back in both
+    `feed_start` and `feed_over`. A matching echo is therefore proof the feed
+    came from a dispense WE sent -- it is also the only acknowledgement this
+    protocol offers, since nothing else confirms the command arrived.
+
+    `content.manual` is the field that looks like it should answer this, and
+    does not: a real D4S reported `manual: 0` for a button press
+    (2026-08-26). Reading it would file every manual dispense as scheduled.
+    """
+    echoed = content.get("id") or content.get("feedId")
+    if not echoed:
+        return False
+    ours = dig(device.config, "local", "lastFeedId", default=None)
+    return bool(ours) and str(echoed) == str(ours)
+
+
+def _planned_totals_today(device: Device) -> tuple[float, float]:
+    """What the stored schedule INTENDS to dispense today, per hopper.
+
+    An intention, not an outcome, so no event can carry it -- it is summed from
+    the schedule the device is holding. Only groups whose `re` covers today
+    count, which is what makes excluding a weekday show up here.
+
+    `re` is PetKit weekdays with SUNDAY = 1, so Python's Monday-0 weekday needs
+    remapping rather than a +1: Sunday is 6 in `weekday()` and 1 here.
+    """
+    schedule = dig(device.config, "feed_schedule", "schedule", default=[])
+    if not isinstance(schedule, list):
+        return (0.0, 0.0)
+    today = (datetime.now().weekday() + 1) % 7 + 1
+    a1 = a2 = 0.0
+    for group in schedule:
+        if not isinstance(group, dict):
+            continue
+        days = {d.strip() for d in str(group.get("re", "")).split(",") if d.strip()}
+        if days and str(today) not in days:
+            continue
+        for meal in group.get("it") or []:
+            if isinstance(meal, dict):
+                a1 += to_float(meal.get("a1"), 0) or 0
+                a2 += to_float(meal.get("a2"), 0) or 0
+    return (a1, a2)
+
+
 def _accumulate_feed_totals(device: Device, content: dict) -> None:
     """Keep today's "Times Dispensed" and "Total Dispensed" running.
 
@@ -558,6 +606,23 @@ def _accumulate_feed_totals(device: Device, content: dict) -> None:
         field_name = f"realAmountTotal{hopper}"
         totals[field_name] = round(
             (to_float(totals.get(field_name), 0) or 0) + amount, 1)
+
+    # The same grams again, filed under how the feed was ASKED FOR: by us, or
+    # by the device's own schedule. Two separate running totals rather than one
+    # split after the fact, because the reference integration publishes them
+    # that way and a dashboard wants "did the schedule run" answerable without
+    # subtracting one sensor from another.
+    bucket = "addAmountTotal" if _was_manual(device, content) else "planRealAmountTotal"
+    for hopper, amount in per_hopper.items():
+        field_name = f"{bucket}{hopper}"
+        totals[field_name] = round(
+            (to_float(totals.get(field_name), 0) or 0) + amount, 1)
+
+    # What today's schedule intends, refreshed on every feed so a schedule
+    # edited mid-day is reflected without waiting for the next one.
+    planned1, planned2 = _planned_totals_today(device)
+    totals["planAmountTotal1"] = planned1
+    totals["planAmountTotal2"] = planned2
     device.state["feedState"] = totals
 
 

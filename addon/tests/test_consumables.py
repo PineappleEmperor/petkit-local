@@ -248,10 +248,17 @@ def test_a_dual_hopper_feed_counts_toward_the_daily_totals():
         "day": 20260808, "real_amount1": 0, "real_amount2": 12})
     normalize.apply_derived_state(dev, "feed_over", {
         "day": 20260808, "real_amount1": 3, "real_amount2": 0})
+    # Neither feed echoes a `lastFeedId` we minted, so both file as SCHEDULED
+    # -- the device ran them, not us. `planAmountTotal*` is 0 because this
+    # device has no stored schedule to intend anything.
     assert dev.state["feedState"] == {"day": 20260808, "times": 2,
                                       "realAmountTotal": 15,
                                       "realAmountTotal1": 3,
-                                      "realAmountTotal2": 12}
+                                      "realAmountTotal2": 12,
+                                      "planRealAmountTotal1": 3,
+                                      "planRealAmountTotal2": 12,
+                                      "planAmountTotal1": 0,
+                                      "planAmountTotal2": 0}
 
 
 def test_an_eating_episode_is_counted_and_timed_without_touching_the_feed():
@@ -333,7 +340,9 @@ def test_the_totals_start_over_when_the_device_says_the_day_changed():
     normalize.apply_derived_state(dev, "feed_over", {"day": 20260808, "real_amount": 10})
     normalize.apply_derived_state(dev, "feed_over", {"day": 20260809, "real_amount": 4})
     assert dev.state["feedState"] == {"day": 20260809, "times": 1,
-                                      "realAmountTotal": 4}
+                                      "realAmountTotal": 4,
+                                      "planAmountTotal1": 0,
+                                      "planAmountTotal2": 0}
     # A feeder that reports the unsuffixed `real_amount` has ONE hopper and
     # must not sprout a per-hopper split reading zero for a hopper it does
     # not have.
