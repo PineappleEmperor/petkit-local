@@ -17,6 +17,7 @@ import ipaddress
 import logging
 import os
 import socket
+import asyncio
 import ssl
 from typing import TYPE_CHECKING
 
@@ -245,6 +246,30 @@ async def start_broker(
         return ctx
 
     broker._create_ssl_context = _device_friendly_ssl_context
+
+    # asyncio reports a FAILED TLS handshake to the loop's exception handler
+    # and nowhere else. amqtt never sees such a connection, so all it can say
+    # afterwards is "No data from client" -- which reads as "the device
+    # connected and stayed silent" when the truth may be "the device sent a
+    # ClientHello and we could not agree". Those need completely different
+    # fixes, so the real error is captured here rather than guessed at.
+    loop = asyncio.get_running_loop()
+    _prev_handler = loop.get_exception_handler()
+
+    def _log_tls_failures(lp, ctx):
+        exc = ctx.get("exception")
+        if isinstance(exc, ssl.SSLError):
+            log.error("TLS handshake FAILED: %s (reason=%s, lib=%s) — %s",
+                      exc, getattr(exc, "reason", "?"), getattr(exc, "library", "?"),
+                      ctx.get("message", ""))
+        elif "SSL" in str(ctx.get("message", "")) or "handshake" in str(ctx.get("message", "")):
+            log.error("TLS transport error: %s (%r)", ctx.get("message"), exc)
+        if _prev_handler is not None:
+            _prev_handler(lp, ctx)
+        else:
+            lp.default_exception_handler(ctx)
+
+    loop.set_exception_handler(_log_tls_failures)
 
     await broker.start()
 

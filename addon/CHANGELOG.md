@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.4.1 — 2026-08-27
+
+- **TLS handshake failures are logged instead of vanishing.** asyncio reports a
+  failed handshake to the event loop's exception handler and nowhere else, so
+  amqtt never sees the connection and can only report "No data from client"
+  afterwards. That reads as "the device connected and stayed silent" when the
+  truth may be "the device sent a ClientHello and we could not agree on a
+  cipher or a certificate" — which need completely different fixes. The real
+  `SSLError`, with its reason and library, now reaches the log.
+
+- **The feed schedule fits HA's text entity.** `itemJsonString` is dropped from
+  the published copy only: it restates `it` verbatim and PetKit rebuilds it
+  server-side, but it pushed a real two-meal schedule to 276 characters against
+  a 255 cap, so the entity silently held nothing.
+
+
 ## 2.4.0 — 2026-08-27
 
 - **Per-hopper feed accounting, the rest of it.** Six sensors completing what
