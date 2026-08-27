@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.4.0 — 2026-08-27
+
+- **Per-hopper feed accounting, the rest of it.** Six sensors completing what
+  the reference integration gives a D4S: Dispensed Manually, Planned, and
+  Dispensed On Schedule, each per hopper (`addAmountTotal1/2`,
+  `planAmountTotal1/2`, `planRealAmountTotal1/2`).
+
+  Manual and scheduled are told apart by the FEED ID. `_feed` mints an id and
+  stores it in `config.local.lastFeedId`; the device echoes that same id back
+  in `feed_start`/`feed_over`, so a matching echo is proof the feed came from a
+  dispense we sent — and is also the only acknowledgement this protocol offers
+  that a command arrived at all. `content.manual` is the field that looks like
+  it should answer this and does not: a real D4S reported `manual: 0` for a
+  button press, which would have filed every manual dispense as scheduled.
+
+  "Planned" is an INTENTION rather than an outcome, so no event can carry it —
+  it is summed from the stored schedule for the current weekday, and therefore
+  reflects a day excluded from `re` straight away.
+
+- **A Connection sensor on every device**, diagnostic, reading MQTT or HTTP.
+  It is not a device field; it is our own view of the link, and it is the
+  answer to "why did that button take two minutes" — an HTTP device only
+  collects a command when it next polls, where an MQTT one is pushed to.
+
+- **The per-hopper `feedState` spellings are parsed**, not just synthesised, so
+  a device that does send a `feedState` block is read correctly.
+
+
 ## 2.3.2 — 2026-08-27
 
 - **Clicking a day in a feeder's schedule did nothing.** The handler resolved
