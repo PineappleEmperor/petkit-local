@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.3.1 — 2026-08-27
+
+- **Every entity sat `unavailable` after an add-on restart.** Availability was
+  published only on an offline->online TRANSITION, and that transition never
+  happened: the heartbeat handler sets `device.online = True`, and the HTTP
+  middleware that fires the notification runs after it, so the flag was already
+  True and the callback was skipped. `online` is deliberately not persisted, so
+  startup published a retained `offline` and nothing ever corrected it — the
+  device heartbeated every ten seconds, the panel showed it online, and Home
+  Assistant showed the whole device unavailable until it went stale and came
+  back. Availability is now published on every contact and deduplicated in the
+  publisher, so it is self-healing rather than transition-dependent, and the
+  reconnect replay forces a publish because HA discards its MQTT registry when
+  the broker link drops.
+
+
 ## 2.3.0 — 2026-08-26
 
 Two silent bugs found by running a real D4S, and a pass over the feeder entity
