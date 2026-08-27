@@ -396,12 +396,23 @@ def _extract_ip(body: dict[str, Any], state: dict[str, Any]) -> None:
 def _extract_wifi_rssi(body: dict[str, Any], state: dict[str, Any]) -> None:
     """Pull signal strength out of `wifi`, which spells it `rsq` or `rssi`.
 
-    Falls back to whatever is already in `state` so calling this after a flat
-    top-level `rssi` was extracted cannot blank it.
+    Writes NOTHING when the payload has no signal reading, which is not the
+    same as writing what is already there. The fallback used to be
+    `state.get("rssi")` -- but `state` is the dict being built for THIS
+    payload, not the device's accumulated state, so on a body with no `wifi`
+    block it read an absent key and stored `rssi: None`. That None then merged
+    over a perfectly good reading.
+
+    It stayed hidden for as long as the payloads carrying no `wifi` were being
+    thrown away: an event report's `state` block is quote-wrapped, so it failed
+    to parse and never reached a parser at all. Fixing that parse turned this
+    into "every feed event blanks the WiFi signal".
     """
     wifi = dig(body, "wifi", default={})
     if isinstance(wifi, dict):
-        state["rssi"] = wifi.get("rsq", wifi.get("rssi", state.get("rssi")))
+        value = wifi.get("rsq", wifi.get("rssi"))
+        if value is not None:
+            state["rssi"] = value
 
 
 def _parse_content_field(body: dict[str, Any], state: dict[str, Any]) -> None:

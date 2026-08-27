@@ -373,7 +373,12 @@ const entryListOf = v => (Array.isArray(v) ? v : v.schedule);
 onChange('sched-day', el =>
   schedEdit(el.dataset.id, el.dataset.target, v => {
     const entry = entryListOf(v)[Number(el.dataset.idx)];
-    const field = 'rpt' in entry ? 'rpt' : 'repeats';
+    // Three spellings, one per schedule shape: a litter box says `rpt`, a
+    // FEEDER group says `re`, and the weekly shape says `repeats`. Omitting
+    // `re` meant a feeder fell through to `repeats` and wrote the days into a
+    // key its schedule does not have -- the checkbox moved, `re` kept every
+    // day, and clicking a day appeared to do nothing at all.
+    const field = ['rpt', 're', 'repeats'].find(k => k in entry) || 'repeats';
     const days = new Set(
       String(entry[field] || '')
         .split(',')

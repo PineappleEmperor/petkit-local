@@ -474,6 +474,23 @@ FEEDER_HTTP_CODES: dict[str, EventCode] = {
              "`drink_start` on a fountain and something else again on a litter "
              "box.",
     ),
+    "6": EventCode(
+        kind=KIND_FEEDING, label="Eating done", anchor=True, role=ROLE_DONE,
+        done_word="eating", grade=INFERRED, families=FEEDER,
+        note="CONFIRMED as a pair on a live D4S (fw 1.198, HTTP, 2026-08-27): "
+             "a code 5 at 857909 followed by this at 857947 carrying "
+             "content {start_time: 857906} and nothing else. The start_time "
+             "predates the 5 by three seconds and the close arrives ~40s "
+             "later, which is an EPISODE, not a snapshot -- and the D4S has no "
+             "camera, so neither event can be image-driven. It detects the pet "
+             "at the bowl from the proximity/IR pair it reports as `prox`, "
+             "`proxl_rw`/`proxr_rw` and `near` in `other`. "
+             "Until this row existed the device logged \"Unknown event_type "
+             "'6'\" and Times Eaten / Average Eating Time could never fill, "
+             "because the eating episode had no close to measure to. "
+             "Graded INFERRED: the 5/6 pairing and the timings are observed, "
+             "the firmware name behind 6 is not. NOTE codes are PER CATEGORY.",
+    ),
     "7": EventCode(
         kind=KIND_MOTION, label="Motion detected", anchor=True,
         families=FEEDER_CAMERA,

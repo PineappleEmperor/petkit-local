@@ -40,7 +40,15 @@ LITTER_SENSORS = [
               value_path="state.workingState", icon="mdi:state-machine",
               options=_WORK_MODE_LABELS, option_values=_WORK_MODE_VALUES),
     EntityDef(component="sensor", key="error", name="Error",
-              value_path="state.errorMsg", icon="mdi:alert-circle"),
+              value_path="state.errorMsg", icon="mdi:alert-circle",
+              # "" is the device saying there is no fault, and a blank sensor
+              # reads as broken rather than as healthy. Mapped through the enum
+              # renderer, which falls back to the RAW string, so a real fault
+              # ("Food outlet blocked") still shows verbatim -- only the empty
+              # case gets a word. No `device_class="enum"`, for the same reason
+              # the other enum sensors avoid it: HA would reject any value not
+              # on the list, which is every real fault.
+              options=["No error"], option_values=[""]),
     # GRAMS, not kilograms. The device reports `litter.weight` as an integer
     # gram count (5469 in real T5 reports), `pet_weight` below uses `g` for the
     # same magnitude, and the panel's Timeline divides by 1000 to render kg.
@@ -211,7 +219,15 @@ FEEDER_SENSORS = [
               options=["Normal", "On batteries"],
               option_values=["normal", "on_batteries"]),
     EntityDef(component="sensor", key="error", name="Error",
-              value_path="state.errorMsg", icon="mdi:alert-circle"),
+              value_path="state.errorMsg", icon="mdi:alert-circle",
+              # "" is the device saying there is no fault, and a blank sensor
+              # reads as broken rather than as healthy. Mapped through the enum
+              # renderer, which falls back to the RAW string, so a real fault
+              # ("Food outlet blocked") still shows verbatim -- only the empty
+              # case gets a word. No `device_class="enum"`, for the same reason
+              # the other enum sensors avoid it: HA would reject any value not
+              # on the list, which is every real fault.
+              options=["No error"], option_values=[""]),
     EntityDef(component="sensor", key="desiccant_days", name="Desiccant Days Left",
               value_path="state.desiccantLeftDays", unit="days", icon="mdi:water-outline"),
     EntityDef(component="sensor", key="rssi", name="WiFi Signal",
@@ -417,7 +433,15 @@ FOUNTAIN_SENSORS = [
     EntityDef(component="sensor", key="device_status", name="Device Status",
               value_path="state.workingState", icon="mdi:state-machine"),
     EntityDef(component="sensor", key="error", name="Error",
-              value_path="state.errorMsg", icon="mdi:alert-circle"),
+              value_path="state.errorMsg", icon="mdi:alert-circle",
+              # "" is the device saying there is no fault, and a blank sensor
+              # reads as broken rather than as healthy. Mapped through the enum
+              # renderer, which falls back to the RAW string, so a real fault
+              # ("Food outlet blocked") still shows verbatim -- only the empty
+              # case gets a word. No `device_class="enum"`, for the same reason
+              # the other enum sensors avoid it: HA would reject any value not
+              # on the list, which is every real fault.
+              options=["No error"], option_values=[""]),
     EntityDef(component="sensor", key="rssi", name="WiFi Signal",
               value_path="state.rssi", device_class="signal_strength", unit="dBm"),
     EntityDef(component="sensor", key="filter_percent", name="Filter Level",
@@ -621,7 +645,15 @@ PURIFIER_SENSORS = [
     EntityDef(component="sensor", key="device_status", name="Device Status",
               value_path="state.workingState", icon="mdi:state-machine"),
     EntityDef(component="sensor", key="error", name="Error",
-              value_path="state.errorMsg", icon="mdi:alert-circle"),
+              value_path="state.errorMsg", icon="mdi:alert-circle",
+              # "" is the device saying there is no fault, and a blank sensor
+              # reads as broken rather than as healthy. Mapped through the enum
+              # renderer, which falls back to the RAW string, so a real fault
+              # ("Food outlet blocked") still shows verbatim -- only the empty
+              # case gets a word. No `device_class="enum"`, for the same reason
+              # the other enum sensors avoid it: HA would reject any value not
+              # on the list, which is every real fault.
+              options=["No error"], option_values=[""]),
     EntityDef(component="sensor", key="humidity", name="Humidity",
               value_path="state.humidity", device_class="humidity", unit="%"),
     EntityDef(component="sensor", key="temperature", name="Temperature",
