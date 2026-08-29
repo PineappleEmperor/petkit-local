@@ -305,6 +305,31 @@ class AliyunAuthPlugin(BaseAuthPlugin):
         our own bridge is not among them, so its traffic costs one identity
         comparison per entry and nothing else.
         """
+        # A CONNECT amqtt refuses is fired here and then dropped, because the
+        # early return below needs a session and a refused CONNECT never gets
+        # one. That made a refusal indistinguishable from silence: a D4S
+        # reached the broker, was refused, and the log said only that a
+        # connection had closed. amqtt checks the will flag BEFORE the protocol
+        # level, so an MQTT 5.0 CONNECT — which its 3.1.1 parser cannot read,
+        # having no Properties block — is reported as a malformed will rather
+        # than as an unsupported version. The level is the only field that
+        # tells those apart, so it is recorded before anything can reject the
+        # packet. The password is deliberately absent: it carries the
+        # HMAC-SHA256 signature.
+        if session is None and type(packet).__name__ == "ConnectPacket":
+            try:
+                vh, pl = packet.variable_header, packet.payload
+                log.warning(
+                    "CONNECT unattributed: proto=%r level=%d flags=0x%02x "
+                    "(will=%s clean=%s user=%s pass=%s) keepalive=%d "
+                    "client_id=%r will_topic=%r",
+                    vh.proto_name, vh.proto_level, vh.flags,
+                    bool(vh.flags & 0x04), bool(vh.flags & 0x02),
+                    bool(vh.flags & 0x80), bool(vh.flags & 0x40),
+                    vh.keep_alive, pl.client_id, pl.will_topic)
+            except Exception:  # noqa: BLE001 - a diagnostic must never break a CONNECT
+                log.warning("CONNECT unattributed; its header could not be read")
+
         if session is None or not self._live_sessions:
             return
         for petkit_id, live in self._live_sessions.items():

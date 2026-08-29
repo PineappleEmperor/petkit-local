@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.4.2 — 2026-08-29
+
+- **A refused MQTT CONNECT is logged instead of vanishing.** amqtt fires its
+  packet-received event before it validates a CONNECT, but our hook dropped
+  anything without a session — and a refused CONNECT never gets one. A device
+  that reached the broker and was turned away therefore looked exactly like one
+  that connected and stayed silent. A D4S was in that state for two days. The
+  protocol name, level, connect flags, keep-alive and client id are now
+  recorded on the way past; the password is not, because it carries the
+  HMAC-SHA256 signature.
+
+  The level matters most: amqtt checks the will flag BEFORE the protocol level,
+  so an MQTT 5.0 CONNECT — which its 3.1.1 parser cannot read, having no
+  Properties block — is reported as a malformed will rather than as an
+  unsupported version. Those need different fixes and nothing distinguished
+  them.
+
+
 ## 2.4.1 — 2026-08-27
 
 - **TLS handshake failures are logged instead of vanishing.** asyncio reports a
