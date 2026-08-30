@@ -22,7 +22,7 @@ from petkit_local.http.bucket import create_bucket_app
 from petkit_local.http.handlers.upload_file_info import wait_for_pending as wait_for_media_tasks
 from petkit_local.media.retention import RetentionSweeper
 from petkit_local.media.stitch import EpisodeStitcher
-from petkit_local.mqtt.broker import ensure_self_signed, start_broker
+from petkit_local.mqtt.broker import _san_of, ensure_self_signed, start_broker
 from petkit_local.web.panel import create_panel_app
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -35,6 +35,80 @@ log = logging.getLogger(__name__)
 #: ONLY place a task gets created — shutdown iterates this list rather than a
 #: hand-maintained tuple of names, which had already drifted out of date.
 BACKGROUND_TASKS = "background_tasks"
+
+#: The name a device dials when `config.mqtt_aliyun_host` is on. Wildcard: the
+#: subdomain is the product key, so one certificate has to cover every device.
+ALIYUN_MQTT_WILDCARD = "*.iot-as-mqtt.eu-central-1.aliyuncs.com"
+
+
+#: Suffix an outgrown certificate is renamed to. Renamed and not deleted: the
+#: only way back to a device whose trust store holds the old one is the old key,
+#: and re-issuing can fail (no `cryptography`, a full disk, bad permissions)
+#: AFTER the originals are gone. That would leave no certificate at all — no TLS
+#: listener, and a bucket serving plain HTTP, which stops media uploads dead.
+SUPERSEDED_SUFFIX = ".superseded"
+
+
+def _ensure_cert_named(cert_path: str, key_path: str, wanted: list[str]) -> bool:
+    """`ensure_self_signed`, but re-issue when the existing cert lacks a name.
+
+    `ensure_self_signed` returns early when a certificate is already on disk, so
+    turning `mqtt_aliyun_host` on would otherwise keep serving the old one and
+    the option would appear to do nothing. `_warn_if_uncovered` spots the same
+    condition but only logs it, deliberately — re-issuing invalidates the copy
+    the `cacert` patcher put in every patched device's trust store, so it must
+    not happen behind the operator's back.
+
+    Doing it here is that decision made explicitly: the operator turned on an
+    option whose whole purpose is to change the name in the certificate.
+
+    The old pair is renamed rather than removed, and restored if generation
+    fails, so no path through this function can end with neither a working
+    certificate nor the material to rebuild the old one. A certificate that
+    cannot be read is left alone — "cannot tell" must not become "replace".
+
+    Returns:
+        Whether a usable certificate exists afterwards, exactly as
+        `ensure_self_signed` does.
+    """
+    missing: list[str] = []
+    if wanted and os.path.exists(cert_path):
+        named = _san_of(cert_path)
+        # Empty means unreadable or no SAN, which is not evidence of anything.
+        missing = [h for h in wanted if h not in named] if named else []
+    if not missing:
+        return ensure_self_signed(cert_path, key_path, extra_hosts=wanted or None)
+
+    log.warning("Re-issuing the TLS certificate: it does not name %s. The old "
+                "pair is kept alongside with a %s suffix. Any device carrying it "
+                "in its trust store (the `cacert` patcher) needs that patch "
+                "re-applied.", ", ".join(missing), SUPERSEDED_SUFFIX)
+    moved: list[tuple[str, str]] = []
+    try:
+        for path in (cert_path, key_path):
+            if os.path.exists(path):
+                os.replace(path, path + SUPERSEDED_SUFFIX)
+                moved.append((path, path + SUPERSEDED_SUFFIX))
+    except OSError as e:
+        log.warning("Could not set the old certificate aside (%s); keeping it", e)
+        _restore(moved)
+        return ensure_self_signed(cert_path, key_path, extra_hosts=wanted or None)
+
+    if ensure_self_signed(cert_path, key_path, extra_hosts=wanted or None):
+        return True
+    log.error("Could not issue a certificate naming %s; restoring the previous one",
+              ", ".join(missing))
+    _restore(moved)
+    return os.path.exists(cert_path) and os.path.exists(key_path)
+
+
+def _restore(moved: list[tuple[str, str]]) -> None:
+    """Put back what `_ensure_cert_named` set aside. Never raises."""
+    for original, backup in moved:
+        try:
+            os.replace(backup, original)
+        except OSError as e:  # noqa: PERF203 - each file matters on its own
+            log.error("Could not restore %s from %s: %s", original, backup, e)
 
 
 def _spawn(app_instance: web.Application, name: str,
@@ -201,8 +275,16 @@ async def start_background(services: Services, app_instance: web.Application) ->
         # behind a reverse proxy, on a multi-homed host, or when the operator
         # configured a name.
         bucket_host = urlparse(config.bucket_endpoint or config.api_url).hostname
-        if ensure_self_signed(cert_path, bkt_key,
-                              extra_hosts=[bucket_host] if bucket_host else None):
+        wanted = [bucket_host] if bucket_host else []
+        if config.mqtt_aliyun_host:
+            # The name the device dials once `self_mqtt_host` returns "". It is
+            # a wildcard rather than one device's host because the subdomain is
+            # the product key, so a second device would otherwise need a second
+            # certificate. `ensure_self_signed` turns any non-address entry
+            # into a DNS SAN, which is where mbedtls looks before falling back
+            # to the CN.
+            wanted.append(ALIYUN_MQTT_WILDCARD)
+        if _ensure_cert_named(cert_path, bkt_key, wanted):
             bkt_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             bkt_ctx.load_cert_chain(cert_path, bkt_key)
     except Exception as e:

@@ -34,11 +34,19 @@ def self_mqtt_host(config: dict) -> str:
     to whatever this returns, so a second derivation that drifted would hand a
     device an address it is not listening on.
 
+    `mqtt_aliyun_host` deliberately returns "" instead, which makes
+    `Device.resolve_mqtt_host` fall through to `Device.aliyun_mqtt_host` — the
+    Aliyun-format name — rather than our address. That option only works with a
+    DNS rewrite pointing that name here; see `config.py` for what it is testing
+    and why it is off by default.
+
     Returns:
         The hostname, or "" when `api_url` has none to give. Empty is a working
         outcome, not a failure — the device then falls back to the HTTP
         heartbeat, which is slower but needs no broker.
     """
+    if config.get("mqtt_aliyun_host"):
+        return ""
     return urlparse(config.get("api_url", "")).hostname or ""
 
 

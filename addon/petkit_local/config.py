@@ -273,6 +273,24 @@ class Config:
     # Enforce Aliyun HMAC sign. Default off = accept-all (like the reference
     # broker), so an algorithm/sign nuance never blocks a real device.
     mqtt_strict_auth: bool = False
+    #: Hand the device `Device.aliyun_mqtt_host` instead of our own address, and
+    #: name that host in the broker certificate.
+    #:
+    #: A D4S completes the TLS handshake against our broker and then sends
+    #: nothing at all -- no CONNECT, not one byte -- and closes on its own timer.
+    #: The handshake succeeding rules out cipher, version and cert parsing, so
+    #: what it rejects is the certificate itself, after the fact. localkit's
+    #: broker presents an equally self-signed certificate and its devices DO
+    #: connect; the visible difference is that theirs is dialled by NAME and the
+    #: certificate's CN is that name, where we are dialled by bare IP and named
+    #: `petkit-local`. Plenty of embedded mbedtls integrations compare only
+    #: against CN and DNS SANs and never implement IP-SAN matching.
+    #:
+    #: Off by default because it is unproven, and because the address route is
+    #: what a patched T5 already works with. Turning it on REQUIRES a DNS
+    #: rewrite of `*.iot-as-mqtt.eu-central-1.aliyuncs.com` to this add-on --
+    #: without one the name resolves to Alibaba and the device leaves the LAN.
+    mqtt_aliyun_host: bool = False
 
     # Seconds without a heartbeat or state report before a device is marked
     # offline (availability -> "offline" in HA).
@@ -415,6 +433,7 @@ class Config:
         return {
             "api_url": self.api_url,
             "mqtt_port": self.mqtt_port,
+            "mqtt_aliyun_host": self.mqtt_aliyun_host,
             "proxy_mode": self.proxy_mode,
             "proxy_upstream": self.proxy_upstream,
             "proxy_dns": self.proxy_dns,
@@ -525,6 +544,7 @@ class Config:
         c.mqtt_tls = _opt_bool(opts, "mqtt_tls", c.mqtt_tls)
         c.mqtt_tls_port = _opt_int(opts, "mqtt_tls_port", c.mqtt_tls_port)
         c.mqtt_strict_auth = _opt_bool(opts, "mqtt_strict_auth", c.mqtt_strict_auth)
+        c.mqtt_aliyun_host = _opt_bool(opts, "mqtt_aliyun_host", c.mqtt_aliyun_host)
 
         # `capture` and every `proxy_*` key are deliberately NOT read from the
         # options file: they are debugging switches you flip while watching a

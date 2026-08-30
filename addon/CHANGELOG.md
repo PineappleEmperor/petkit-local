@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.4.3 — 2026-08-30
+
+- **New option `mqtt_aliyun_host`, off by default.** A D4S completes the TLS
+  handshake against our broker and then sends nothing at all — no CONNECT, not
+  one byte — before closing on its own timer. A completed handshake rules out
+  cipher, version and certificate parsing, which leaves the certificate itself,
+  rejected after the fact. localkit's broker presents an equally self-signed
+  certificate and its devices do connect; the visible difference is that theirs
+  is dialled by NAME with a matching CN, where ours is dialled by bare IP and
+  named `petkit-local`. Many embedded mbedtls integrations compare only against
+  CN and DNS SANs and never implement IP-SAN matching.
+
+  With the option on, `self_mqtt_host` returns "" so the existing
+  `resolve_mqtt_host` falls through to `Device.aliyun_mqtt_host`, and the broker
+  certificate gains `*.iot-as-mqtt.eu-central-1.aliyuncs.com` as a wildcard DNS
+  SAN. It **requires** a DNS rewrite of that name to this add-on; without one
+  the name resolves to Alibaba and the device leaves the LAN. Off by default
+  because it is unproven, and because the address route is what a patched T5
+  already works with.
+
+- **An outgrown certificate is renamed, never deleted.** `ensure_self_signed`
+  returns early when a certificate exists, so the option would otherwise appear
+  to do nothing. Re-issuing invalidates the copy the `cacert` patcher put in
+  patched devices' trust stores, so the old pair is moved aside with a
+  `.superseded` suffix and restored if generation then fails — a missing
+  `cryptography`, a full disk or bad permissions leaves the previous
+  certificate in place rather than no certificate at all, which would mean no
+  TLS listener and a bucket on plain HTTP.
+
+
 ## 2.4.2 — 2026-08-29
 
 - **A refused MQTT CONNECT is logged instead of vanishing.** amqtt fires its
